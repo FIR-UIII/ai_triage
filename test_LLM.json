@@ -1,0 +1,124 @@
+[
+  {
+    "id": 2982921,
+    "tags": [],
+    "request_response": {
+      "req_resp": []
+    },
+    "accepted_risks": [],
+    "push_to_jira": false,
+    "age": 6,
+    "sla_days_remaining": 24,
+    "finding_meta": [],
+    "related_fields": null,
+    "jira_creation": null,
+    "jira_change": null,
+    "display_status": "Inactive, Mitigated, False Positive",
+    "finding_groups": [],
+    "vulnerability_ids": [
+      {
+        "vulnerability_id": "XXX"
+      }
+    ],
+    "reporter": 1,
+    "title": "openssl:1:1.1.1zd-1.el7 Affected By: CVE-2019-1543 (NVD)",
+    "date": "2026-02-10",
+    "sla_start_date": null,
+    "sla_expiration_date": "2026-03-12",
+    "cwe": 327,
+    "epss_score": null,
+    "epss_percentile": null,
+    "cvssv3": null,
+    "cvssv3_score": 7.4,
+    "url": null,
+    "severity": "High",
+    "description": "You are using a component with a known vulnerability. Version 1:1.1.1zd-1.el7 of the openssl component is affected by the vulnerability with an id of CVE-2019-1543 as identified by NVD.\nThe purl of the affected component is: pkg:rpm/redos/openssl@1.1.1zd-1.el7?arch=x86_64&distro=redos-7.3&epoch=1&upstream=openssl-1.1.1zd-1.el7.src.rpm.\nVulnerability Description: ChaCha20-Poly1305 is an AEAD cipher, and requires a unique nonce input for every encryption operation. RFC 7539 specifies that the nonce value (IV) should be 96 bits (12 bytes). OpenSSL allows a variable nonce length and front pads the nonce with 0 bytes if it is less than 12 bytes. However it also incorrectly allows a nonce to be set of up to 16 bytes. In this case only the last 12 bytes are significant and any additional leading bytes are ignored. It is a requirement of using this cipher that nonce values are unique. Messages encrypted using a reused nonce value are susceptible to serious confidentiality and integrity attacks. If an application changes the default nonce length to be longer than 12 bytes and then makes a change to the leading bytes of the nonce expecting the new value to be a new unique nonce then such an application could inadvertently encrypt messages with a reused nonce. Additionally the ignored bytes in a long nonce are not covered by the integrity guarantee of this cipher. Any application that relies on the integrity of these ignored leading bytes of a long nonce may be further affected. Any OpenSSL internal use of this cipher, including in SSL/TLS, is safe because no such use sets such a long nonce value. However user applications that use this cipher directly and set a non-default nonce length to be longer than 12 bytes may be vulnerable. OpenSSL versions 1.1.1 and 1.1.0 are affected by this issue. Due to the limited scope of affected deployments this has been assessed as low severity and therefore we are not creating new releases at this time. Fixed in OpenSSL 1.1.1c (Affected 1.1.1-1.1.1b). Fixed in OpenSSL 1.1.0k (Affected 1.1.0-1.1.0j).",
+    "mitigation": null,
+    "impact": null,
+    "steps_to_reproduce": null,
+    "severity_justification": null,
+    "references": null,
+    "active": false,
+    "verified": false,
+    "false_p": true,
+    "duplicate": false,
+    "out_of_scope": false,
+    "risk_accepted": false,
+    "under_review": false,
+    "last_status_update": "2026-02-16T07:38:13.469022Z",
+    "under_defect_review": false,
+    "is_mitigated": true,
+    "thread_id": 0,
+    "mitigated": "2026-02-16T07:38:12.954311Z",
+    "numerical_severity": "S1",
+    "last_reviewed": "2026-02-16T07:38:12.935949Z",
+    "param": null,
+    "payload": null,
+    "hash_code": "46a19d83289ed642296e0637670438e59fc39afbb5ebbc05422ca2d7921b3984",
+    "line": null,
+    "file_path": "pkg:rpm/redos/openssl@1.1.1zd-1.el7?arch=x86_64&distro=redos-7.3&epoch=1&upstream=openssl-1.1.1zd-1.el7.src.rpm",
+    "component_name": "XXX",
+    "component_version": "1:1.1.1zd-1.el7",
+    "static_finding": true,
+    "dynamic_finding": false,
+    "created": "2026-02-10T08:07:20.203274Z",
+    "scanner_confidence": null,
+    "unique_id_from_tool": null,
+    "vuln_id_from_tool": "d33c8cc0-1912-4ec5-b3bf-8282ac932047",
+    "sast_source_object": null,
+    "sast_sink_object": null,
+    "sast_source_line": null,
+    "sast_source_file_path": null,
+    "nb_occurences": null,
+    "publish_date": null,
+    "service": null,
+    "planned_remediation_date": null,
+    "planned_remediation_version": null,
+    "effort_for_fixing": null,
+    "test": 17627,
+    "duplicate_finding": null,
+    "review_requested_by": null,
+    "defect_review_requested_by": null,
+    "mitigated_by": 354,
+    "last_reviewed_by": 354,
+    "sonarqube_issue": null,
+    "endpoints": [],
+    "reviewers": [],
+    "notes": [
+      {
+        "id": 1929928,
+        "author": {
+          "id": 354,
+          "username": "gren-d-arypaderin",
+          "first_name": "",
+          "last_name": "gren-d-ArYPaderin"
+        },
+        "editor": null,
+        "history": [
+          {
+            "id": 11248,
+            "current_editor": {
+              "id": 354,
+              "username": "gren-d-arypaderin",
+              "first_name": "",
+              "last_name": "gren-d-ArYPaderin"
+            },
+            "note_type": null,
+            "data": "Используется версия 1.1.1zd-1.el7 содержащее исправление (патч) от вендора РедОС, подробнее см. https://redos.red-soft.ru/search/?iblock_id=24&q=openssl Сканер не интерпритирует корректно буквенное обозначение минорной версии \"zd\" ориентируясь на цифровое наименование. Например для CVE-2021-3711 уязвимая версия до 1.1.1l (не включая)",
+            "time": "2026-02-16T07:38:13.436006Z"
+          }
+        ],
+        "note_type": null,
+        "entry": "Используется версия 1.1.1zd-1.el7 содержащее исправление (патч) от вендора РедОС, подробнее см. https://redos.red-soft.ru/search/?iblock_id=24&q=openssl Сканер не интерпритирует корректно буквенное обозначение минорной версии \"zd\" ориентируясь на цифровое наименование. Например для CVE-2021-3711 уязвимая версия до 1.1.1l (не включая)",
+        "date": "2026-02-16T07:38:13.436006Z",
+        "private": false,
+        "edited": false,
+        "edit_time": "2026-02-16T07:38:13.436083Z"
+      }
+    ],
+    "files": [],
+    "found_by": [
+      122
+    ]
+  }
+]
