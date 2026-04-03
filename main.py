@@ -1,51 +1,219 @@
-from dd_api import DefectDojoClient
-from triage_engine import TriageEngine
-import os
+#!/usr/bin/env python3
+"""
+AI Triage – automated triage of security findings from DefectDojo
+using a RAG + LLM pipeline.
+
+Commands:
+  triage   – run triage on findings from a DefectDojo test
+  enrich   – populate the knowledge base from closed false-positives
+
+Usage:
+  python main.py triage --test-id 15540
+  python main.py enrich --product-id 298 --dry-run
+  python main.py triage --test-id 15540 --post-comments
+"""
+
 import json
+import logging
+import sys
+from pathlib import Path
+from typing import Optional
 
-# TODO: как запускать и передавать параметры?
-args = {"api_url": "https://ddojo.dev.rosatom.local", "api_key": "3d1ccf6ca95dce7d09ab2e0136107a994ab6e773", "test_id": 15540, "cache_file": "test_SCA.json", "output_file": "res.jsonl"}
-dd = DefectDojoClient(api_url=args.get("api_url"), api_key=args.get("api_key"))
+import typer
+from dotenv import load_dotenv
 
-def load_findings():
-    # TODO: пока закомментил, подумать нужен ли argparse для запуска
-    # parser = build_parser()
-    # args = parser.parse_args()
-    # cache_file = args.cache_file or f"findings_{args.test_id}.json"
+load_dotenv()
 
-    # TODO: подумать над оптимизацией - много памяти может кушать работа с inmem var findings, либо работать через кеш redis или через файл
-    findings = None
-    if os.path.exists(args.get("cache_file")):
-        try:
-            with open(args.get("cache_file"), 'r', encoding='utf-8') as file:
-                findings = json.load(file)
-            print(f"Loaded {len(findings)} findings from cache {args.get("cache_file")}")
-        except Exception as e:
-            print(f"Failed to load cache {args.get("cache_file")}: {e}. Will re-fetch.")
+app = typer.Typer(
+    help="AI Triage: automated security findings triage using RAG + LLM",
+    no_args_is_help=True,
+)
 
-    if findings is None:
-        findings = dd.fetch_findings(test_id=args.get("test_id"))
-        try:
-            with open(args.get("cache_file"), 'w', encoding='utf-8') as file:
-                json.dump(findings, file, ensure_ascii=False, indent=2)
-            print(f"Saved {len(findings)} findings to cache {args.get("cache_file")}")
-        except Exception as e:
-            print(f"Failed to save findings to cache {args.get("cache_file")}: {e}")
 
-def triage():
-    engine = TriageEngine(dd_client=dd)
+# ------------------------------------------------------------------
+# Logging setup
+# ------------------------------------------------------------------
 
-    with open(args["cache_file"], 'r', encoding='utf-8') as file:
-        findings_triage = json.load(file)
 
-    with open(args["output_file"], 'w', encoding='utf-8') as outfile:
-        for f in findings_triage:
-            result = engine.triage(f)
-            f['triage_result'] = result
-            # TODO: Записываем каждый объект на новой строке в jsonl пока так проще читать
-            outfile.write(json.dumps(f, ensure_ascii=False) + '\n')
+def _setup_logging(level: str = "INFO") -> None:
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
 
-    print(f"Results saved to {args['output_file']} (JSON lines format)")
 
-triage()
-# load_findings()
+# ------------------------------------------------------------------
+# Shared factory helpers
+# ------------------------------------------------------------------
+
+
+def _load_settings():
+    from config.settings import Settings
+    return Settings()
+
+
+def _build_dd_client(settings):
+    from integrations.defectdojo.client import DefectDojoClient
+    return DefectDojoClient(
+        api_url=settings.dd_api_url,
+        api_key=settings.dd_api_key,
+        verify_ssl=settings.dd_verify_ssl,
+    )
+
+
+def _build_vector_store(settings):
+    from knowledge.vector_store import VectorStore
+    return VectorStore(
+        collection_name=settings.chroma_collection,
+        persist_directory=settings.chroma_dir,
+    )
+
+
+def _build_llm_client(settings):
+    from llm_backend.client import build_llm_client
+    return build_llm_client(settings)
+
+
+def _build_engine(settings, vector_store=None, llm_client=None):
+    from triage.engine import TriageEngine
+    store = vector_store or _build_vector_store(settings)
+    llm = llm_client or _build_llm_client(settings)
+    return TriageEngine(
+        vector_store=store,
+        llm_client=llm,
+        dd_base_url=settings.dd_api_url,
+    )
+
+
+def _load_or_fetch(dd_client, test_id: int, cache_file: str, logger) -> list:
+    cache_path = Path(cache_file)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if cache_path.exists():
+        with open(cache_path, "r", encoding="utf-8") as f:
+            findings = json.load(f)
+        logger.info("Loaded %d findings from cache: %s", len(findings), cache_file)
+        return findings
+
+    findings = dd_client.fetch_findings(test_id=test_id)
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(findings, f, ensure_ascii=False, indent=2)
+    logger.info("Fetched and cached %d findings to: %s", len(findings), cache_file)
+    return findings
+
+
+# ------------------------------------------------------------------
+# CLI commands
+# ------------------------------------------------------------------
+
+
+@app.command()
+def triage(
+    test_id: int = typer.Option(..., "--test-id", "-t", help="DefectDojo test ID"),
+    cache_file: Optional[str] = typer.Option(
+        None, "--cache", "-c", help="Path to findings cache JSON (auto-created if absent)"
+    ),
+    output_file: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Output JSONL file path"
+    ),
+    post_comments: bool = typer.Option(
+        False, "--post-comments", help="Post triage results as DefectDojo comments"
+    ),
+) -> None:
+    """Run triage on findings from a DefectDojo test."""
+    settings = _load_settings()
+    _setup_logging(settings.log_level)
+    logger = logging.getLogger(__name__)
+
+    cache = cache_file or f"{settings.cache_dir}/findings_{test_id}.json"
+    output = output_file or f"{settings.output_dir}/triage_{test_id}.jsonl"
+    Path(output).parent.mkdir(parents=True, exist_ok=True)
+
+    dd = _build_dd_client(settings)
+    engine = _build_engine(settings)
+
+    findings = _load_or_fetch(dd, test_id, cache, logger)
+
+    fp_count = 0
+    review_count = 0
+
+    with open(output, "w", encoding="utf-8") as out:
+        for finding in findings:
+            result = engine.triage(finding)
+            finding["triage_result"] = result.model_dump()
+            out.write(json.dumps(finding, ensure_ascii=False) + "\n")
+
+            if result.verdict == "false-positive":
+                fp_count += 1
+            else:
+                review_count += 1
+
+            if post_comments and result.dd_comment:
+                dd.add_comment(finding["id"], result.dd_comment)
+
+    typer.echo(
+        f"Done. {fp_count} FP | {review_count} needs-review → {output}"
+    )
+
+
+@app.command()
+def enrich(
+    product_id: int = typer.Option(
+        ..., "--product-id", "-p", help="DefectDojo product ID"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview changes without writing to knowledge base"
+    ),
+) -> None:
+    """Populate the knowledge base from closed False Positive findings."""
+    settings = _load_settings()
+    _setup_logging(settings.log_level)
+
+    from knowledge.enrichment import KnowledgeEnricher
+
+    dd = _build_dd_client(settings)
+    store = _build_vector_store(settings)
+    llm = _build_llm_client(settings)
+
+    enricher = KnowledgeEnricher(
+        dd_client=dd,
+        vector_store=store,
+        llm_client=llm,
+        dedup_threshold=settings.dedup_threshold,
+    )
+
+    stats = enricher.enrich_from_product(product_id=product_id, dry_run=dry_run)
+    typer.echo(json.dumps(stats, indent=2))
+
+
+@app.command()
+def fetch(
+    test_id: int = typer.Option(..., "--test-id", "-t", help="DefectDojo test ID"),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Output JSON file (default: cache dir)"
+    ),
+) -> None:
+    """Fetch findings from DefectDojo and save to a local cache file."""
+    settings = _load_settings()
+    _setup_logging(settings.log_level)
+    logger = logging.getLogger(__name__)
+
+    dd = _build_dd_client(settings)
+    dest = output or f"{settings.cache_dir}/findings_{test_id}.json"
+    Path(dest).parent.mkdir(parents=True, exist_ok=True)
+
+    findings = dd.fetch_findings(test_id=test_id)
+    with open(dest, "w", encoding="utf-8") as f:
+        json.dump(findings, f, ensure_ascii=False, indent=2)
+
+    logger.info("Saved %d findings to %s", len(findings), dest)
+    typer.echo(f"Saved {len(findings)} findings to {dest}")
+
+
+# ------------------------------------------------------------------
+# Entry point
+# ------------------------------------------------------------------
+
+if __name__ == "__main__":
+    app()

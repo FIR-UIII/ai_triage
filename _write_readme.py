@@ -1,3 +1,4 @@
+content = """\
 # AI Triage
 
 Автоматизированный триаж срабатываний безопасности из DefectDojo с использованием RAG + LLM.
@@ -69,7 +70,7 @@ cd ai_triage
 
 python -m venv .venv
 # Windows:
-.venv\Scripts\activate
+.venv\\Scripts\\activate
 # Linux / macOS:
 source .venv/bin/activate
 
@@ -161,7 +162,7 @@ LLM_API_KEY=none
 
 Запуск строго на CPU:
 ```bash
-docker run -d -e OLLAMA_NUM_GPU=0 --cpus=8 \
+docker run -d -e OLLAMA_NUM_GPU=0 --cpus=8 \\
   -v llm:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
 ```
 
@@ -172,9 +173,9 @@ docker run -d -e OLLAMA_NUM_GPU=0 --cpus=8 \
 Лучший вариант для параллельной обработки.
 
 ```bash
-llama-server \
-  --hf-repo matrixportal/Phi-4-mini-instruct-Q4_K_M-GGUF \
-  --hf-file phi-4-mini-instruct-q4_k_m.gguf \
+llama-server \\
+  --hf-repo matrixportal/Phi-4-mini-instruct-Q4_K_M-GGUF \\
+  --hf-file phi-4-mini-instruct-q4_k_m.gguf \\
   --ctx-size 8192 --port 8080 --offline --metrics
 
 # Проверить: GET http://localhost:8080/health
@@ -399,7 +400,7 @@ print(result.is_reachable, result.confidence, result.explanation)
 codeql database create ./codeql-db --language=python --source-root=.
 
 # Java (требует компиляции)
-codeql database create ./codeql-db --language=java \
+codeql database create ./codeql-db --language=java \\
   --command="mvn compile -DskipTests" --source-root=.
 
 # JS / TS
@@ -533,7 +534,7 @@ ai_triage/
     "confidence": 0.87,
     "explanation": "Exact CVE/component match in knowledge base (1 entries)",
     "similar_finding_ids": [2728961],
-    "dd_comment": "[Auto-triage] Similar false-positive findings:\n  - https://.../finding/2728961: ...",
+    "dd_comment": "[Auto-triage] Similar false-positive findings:\\n  - https://.../finding/2728961: ...",
     "metadata": {}
   }
 }
@@ -548,3 +549,8 @@ ai_triage/
 | `rag_similarity_match` | 3 | Семантически похожая запись в KB |
 | `llm_analysis` | 4+5 | LLM вынес вердикт (с reachability или без) |
 | `needs_review` | 6 | Нет решения — необходим ручной разбор |
+"""
+
+with open("e:/Projects/ai_triage/README.md", "w", encoding="utf-8") as f:
+    f.write(content)
+print("done")

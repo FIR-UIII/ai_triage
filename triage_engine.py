@@ -67,7 +67,7 @@ class TriageEngine:
                 explanation: 'short explanation'"
             """
             user_prompt = (
-                f"Here new finding info to analyse:\n{finding}\n"
+                f"Here new finding to analyze:\n{finding}\n"
             )
             # нужно нормализовать чтобы проверять длину finding и не отдавать все поля
 
