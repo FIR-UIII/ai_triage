@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     llm_api_model: str = Field("default", validation_alias="LLM_API_MODEL")
     llm_api_key: str = Field("none", validation_alias="LLM_API_KEY")
 
+    # Source code context
+    code_context_max_chars: int = Field(0, validation_alias="CODE_CONTEXT_MAX_CHARS")
+
     # App
     cache_dir: str = Field("./cache", validation_alias="CACHE_DIR")
     output_dir: str = Field("./output", validation_alias="OUTPUT_DIR")

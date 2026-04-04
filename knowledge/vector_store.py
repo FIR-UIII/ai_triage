@@ -3,7 +3,6 @@ from typing import Dict, List, Optional
 
 import chromadb
 
-from core.exceptions import RAGError
 from core.models import KnowledgeEntry
 
 logger = logging.getLogger(__name__)

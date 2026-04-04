@@ -15,6 +15,7 @@ from typing import Dict, List, Optional
 
 from analysis.llm_analyzer import LLMAnalyzer
 from analysis.reachability import BaseReachabilityAnalyzer
+from analysis.code_context import CodeContextProvider
 from analysis.rules import analyze_finding
 from core.models import TriageAction, TriageResult
 from knowledge.vector_store import VectorStore
@@ -32,6 +33,7 @@ class TriageEngine:
         dd_base_url:            DefectDojo base URL for building finding links.
         reachability_analyzer:  Optional SAST reachability tool.
         source_root:            Optional local source root for reachability analysis.
+        code_context_provider:  Optional source code reader for LLM enrichment.
     """
 
     def __init__(
@@ -41,12 +43,14 @@ class TriageEngine:
         dd_base_url: str = "",
         reachability_analyzer: Optional[BaseReachabilityAnalyzer] = None,
         source_root: Optional[str] = None,
+        code_context_provider: Optional[CodeContextProvider] = None,
     ):
         self.store = vector_store
         self.llm_analyzer = LLMAnalyzer(llm_client)
         self.dd_base_url = dd_base_url.rstrip("/")
         self.reachability = reachability_analyzer
         self.source_root = source_root
+        self.code_context = code_context_provider
 
     # ------------------------------------------------------------------
     # Public API
@@ -194,7 +198,7 @@ class TriageEngine:
             )
             rag_context = [r["document"] for r in ctx_results]
 
-        llm_result = self.llm_analyzer.analyze(finding, rag_context)
+        llm_result = self.llm_analyzer.analyze(finding, rag_context, code_context=self._get_code_context(finding))
         if not llm_result:
             return None
 
@@ -244,6 +248,18 @@ class TriageEngine:
     def _primary_cve(finding: Dict) -> Optional[str]:
         ids = finding.get("vulnerability_ids") or []
         return ids[0].get("vulnerability_id") if ids else None
+
+    def _get_code_context(self, finding: Dict) -> Optional[str]:
+        """Build a code context string for the LLM, or None if unavailable."""
+        if not self.code_context:
+            return None
+        ctx = self.code_context.get_context(finding)
+        if not ctx:
+            return None
+        header = f"File: {ctx.file_path_resolved}"
+        if ctx.is_truncated:
+            header += f" (lines {ctx.start_line}-{ctx.end_line} of {ctx.total_lines})"
+        return f"{header}\n{ctx.content}"
 
     @staticmethod
     def _extract_ids(matches: List[Dict]) -> List[int]:

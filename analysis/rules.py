@@ -52,7 +52,7 @@ def _is_test_file(finding: Dict) -> bool:
 
 def _is_documentation_file(finding: Dict) -> bool:
     """Finding is in a documentation-only file."""
-    path = finding.get("file_path") or ""
+    path = finding.get("file_path") or finding.get("sast_source_file_path") or ""
     return bool(re.search(r"\.(md|rst|txt|adoc|asciidoc)$", path, re.IGNORECASE))
 
 

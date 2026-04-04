@@ -75,14 +75,22 @@ def _build_llm_client(settings):
     return build_llm_client(settings)
 
 
-def _build_engine(settings, vector_store=None, llm_client=None):
+def _build_engine(settings, vector_store=None, llm_client=None, repo_path=None):
     from triage.engine import TriageEngine
     store = vector_store or _build_vector_store(settings)
     llm = llm_client or _build_llm_client(settings)
+
+    code_context = None
+    if repo_path:
+        from analysis.code_context import CodeContextProvider
+        max_chars = settings.code_context_max_chars or (settings.llm_n_ctx * 3)
+        code_context = CodeContextProvider(repo_root=repo_path, max_chars=max_chars)
+
     return TriageEngine(
         vector_store=store,
         llm_client=llm,
         dd_base_url=settings.dd_api_url,
+        code_context_provider=code_context,
     )
 
 
@@ -120,6 +128,9 @@ def triage(
     post_comments: bool = typer.Option(
         False, "--post-comments", help="Post triage results as DefectDojo comments"
     ),
+    repo: Optional[str] = typer.Option(
+        None, "--repo", "-r", help="Path to local repository checkout for source code context"
+    ),
 ) -> None:
     """Run triage on findings from a DefectDojo test."""
     settings = _load_settings()
@@ -131,7 +142,7 @@ def triage(
     Path(output).parent.mkdir(parents=True, exist_ok=True)
 
     dd = _build_dd_client(settings)
-    engine = _build_engine(settings)
+    engine = _build_engine(settings, repo_path=repo)
 
     findings = _load_or_fetch(dd, test_id, cache, logger)
 

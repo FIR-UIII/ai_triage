@@ -301,6 +301,9 @@ Options:
 ```bash
 python main.py fetch --test-id 15540
 python main.py fetch --test-id 15540 --output ./data/raw.json
+
+# С анализом кода
+python main.py triage --test-id 15540 --repo C:/repos/iam
 ```
 
 ---

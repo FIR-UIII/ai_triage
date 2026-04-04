@@ -38,13 +38,14 @@ Determine if the security finding below is a false-positive or requires manual r
 
 Known false-positive patterns from the knowledge base (use these as reference):
 {rag_context}
-
+{code_context_block}
 Rules:
 1. Base your decision ONLY on the provided context and finding data.
 2. Do NOT hallucinate CVE details, component versions, or patch information.
 3. If the context clearly matches the finding pattern → false-positive.
 4. If context is missing or unclear → needs-review with low confidence.
 5. Explanation must be factual, concise, max 100 words.
+6. If source code is provided, use it to verify whether the vulnerability is exploitable in context. Template variables in safe contexts, sanitized inputs, or test fixtures are strong indicators of false positives.
 
 Respond with valid JSON only:
 {{
@@ -64,19 +65,25 @@ class LLMAnalyzer:
         self,
         finding: Dict,
         rag_context: List[str],
+        code_context: Optional[str] = None,
     ) -> Optional[Dict]:
         """Analyse a single finding.
 
         Args:
-            finding:     Raw finding dict from DefectDojo.
-            rag_context: List of relevant knowledge-base document strings.
+            finding:      Raw finding dict from DefectDojo.
+            rag_context:  List of relevant knowledge-base document strings.
+            code_context: Optional source code snippet for the finding location.
 
         Returns:
             Dict with keys verdict, confidence, explanation – or None on failure.
         """
         normalized = self._normalize_finding(finding)
         context_text = self._format_context(rag_context)
-        system_prompt = _SYSTEM_PROMPT.format(rag_context=context_text)
+        code_block = self._format_code_context(code_context)
+        system_prompt = _SYSTEM_PROMPT.format(
+            rag_context=context_text,
+            code_context_block=code_block,
+        )
         user_prompt = (
             "Analyse this security finding:\n"
             + json.dumps(normalized, ensure_ascii=False, indent=2)
@@ -117,3 +124,12 @@ class LLMAnalyzer:
         # Cap at 5 entries to keep the prompt within context limits
         lines = [f"- {entry}" for entry in context[:5]]
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_code_context(code_context: Optional[str]) -> str:
+        if not code_context:
+            return ""
+        return (
+            "\nSource code at the finding location:\n"
+            "```\n" + code_context + "\n```\n"
+        )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 class TriageAction(str, Enum):
@@ -88,5 +88,5 @@ class KnowledgeEntry(BaseModel):
         return {
             k: v
             for k, v in self.model_dump().items()
-            if k not in ("id", "document") and isinstance(v, (str, int, float, bool)) and v is not None
+            if k not in ("id", "document") and isinstance(v, (str, int, float, bool))
         }
