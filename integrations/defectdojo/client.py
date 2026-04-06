@@ -98,6 +98,7 @@ class DefectDojoClient:
         )
         for f in findings:
             f["test_name"] = test_name
+            self._dedup_vulnerability_ids(f)
         logger.info("Fetched %d findings for test %d", len(findings), test_id)
         return findings
 
@@ -117,6 +118,8 @@ class DefectDojoClient:
         _DEBUG("fetch_false_positives_by_product: test_id=%d, url=%s, params=%s",
                 test_id, url, params)
         findings = self._paginate(url, params=params)
+        for f in findings:
+            self._dedup_vulnerability_ids(f)
         _DEBUG("fetch_false_positives_by_product: got %d findings", len(findings))
         logger.info(
             "Fetched %d false positives for test_id %d", len(findings), test_id
@@ -145,3 +148,21 @@ class DefectDojoClient:
         except requests.exceptions.RequestException as e:
             logger.error("Failed to post comment to finding %d: %s", finding_id, e)
             return False
+
+    @staticmethod
+    def _dedup_vulnerability_ids(finding: Dict) -> None:
+        """Remove duplicate vulnerability_id entries from a finding in-place."""
+        vuln_ids = finding.get("vulnerability_ids")
+        if not vuln_ids or not isinstance(vuln_ids, list):
+            return
+        seen = set()
+        unique = []
+        for v in vuln_ids:
+            vid = v.get("vulnerability_id", "")
+            if vid and vid not in seen:
+                seen.add(vid)
+                unique.append(v)
+            elif not vid:
+                unique.append(v)
+        if len(unique) < len(vuln_ids):
+            finding["vulnerability_ids"] = unique
