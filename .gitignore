@@ -6,3 +6,4 @@ llm/
 .env
 cache/
 output/
+rag/chroma*

@@ -175,10 +175,12 @@ class VectorStore:
                     n_results, threshold, text)
             res = self.collection.query(query_texts=[text], n_results=n_results)
             items = self._pack_query_results(res)
-            _DEBUG("search_by_similarity: %d raw results, filtering by threshold", len(items))
-            filtered = [item for item in items if item["score"] >= threshold]
-            _DEBUG("search_by_similarity: %d results above threshold", len(filtered))
-            return filtered
+            print(items)
+            # закомментировано - нужно определить фильтрацию пока не знаю каким значениями отсекать
+            # _DEBUG("search_by_similarity: %d raw results, filtering by threshold", len(items))
+            # filtered = [item for item in items if item["score"] >= threshold]
+            # _DEBUG("search_by_similarity: %d results above threshold", len(filtered))
+            return items
         except Exception as e:
             logger.error("Similarity search failed: %s", e)
             return []
