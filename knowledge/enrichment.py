@@ -228,6 +228,7 @@ class KnowledgeEnricher:
             cve=cve,
             component_name=component or None,
             component_version=component_version or None,
+            rule=rule or None,
             source_finding_id=finding_id,
             product_id=finding.get("product") or finding.get("product_id"),
             date=(finding.get("mitigated") or "")[:10] or None,
