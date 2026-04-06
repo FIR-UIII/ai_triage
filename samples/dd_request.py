@@ -34,8 +34,8 @@ from typing import List, Dict
 # CONFIG
 # =========================
 
-DEFECTDOJO_URL = "https://ddojo.dev.rosatom.local/"
-API_TOKEN = "3d1ccf6ca95dce7d09ab2e0136107a994ab6e773"
+DEFECTDOJO_URL = "https://ddojo.dev.xxx.local/"
+API_TOKEN = "xxx"
 TEST_ID = 17627  # <-- нужный test_id
 PAGE_SIZE = 100  # можно увеличить (например 200/500 если позволяет сервер)
 
