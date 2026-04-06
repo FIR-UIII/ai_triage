@@ -9,7 +9,6 @@ Commands:
 
 Usage:
   python main.py triage --test-id 15540
-  python main.py enrich --product-id 298 --dry-run
   python main.py triage --test-id 15540 --post-comments
 """
 
@@ -165,7 +164,7 @@ def triage(
                 dd.add_comment(finding["id"], result.dd_comment)
 
     typer.echo(
-        f"Done. {fp_count} FP | {review_count} needs-review → {output}"
+        f"Успешно выполнено. \n К ложным сработкам отнесено: {fp_count} \n Требуют ручного анализа {review_count} \n Файл с результатами → {output}"
     )
 
 

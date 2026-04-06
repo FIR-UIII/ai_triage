@@ -55,6 +55,7 @@ class FPReasonExtractor:
         # llm_client is optional – enrichment can run without LLM
         self.llm = llm_client
 
+    # цель функции распарсить из finding ключ entry в котором содержится описание причины FP
     def extract(self, finding: Dict) -> Optional[str]:
         notes = finding.get("notes") or []
         entries = [n.get("entry", "") for n in notes if n.get("entry")]
@@ -75,7 +76,7 @@ class FPReasonExtractor:
         #         return reason
 
         # Use truncated note as the reason
-        return combined[:300].strip() or None
+        return combined[:500].strip() or None
 
     # ------------------------------------------------------------------
 
@@ -87,32 +88,32 @@ class FPReasonExtractor:
                 return True
         return False
 
-    def _extract_with_llm(self, finding: Dict, notes: str) -> Optional[str]:
-        system_prompt = (
-            "You are a security analyst assistant. "
-            "Extract the reason a finding was marked false-positive from analyst notes. "
-            "Return a single concise sentence (max 200 chars). "
-            'Return JSON: {"fp_reason": "..."}. '
-            'If no clear reason: {"fp_reason": null}.'
-        )
-        cves = [
-            v.get("vulnerability_id", "")
-            for v in finding.get("vulnerability_ids", [])
-        ]
-        user_prompt = (
-            f"Finding: {finding.get('title', 'N/A')}\n"
-            f"CVE: {', '.join(cves)}\n"
-            f"Component: {finding.get('component_name', 'N/A')} "
-            f"{finding.get('component_version', '')}\n"
-            f"Analyst notes:\n{notes}"
-        )
-        try:
-            raw = self.llm.chat(system_prompt, user_prompt)
-            data = json.loads(raw)
-            return data.get("fp_reason")
-        except Exception as e:
-            logger.warning("LLM FP reason extraction failed: %s", e)
-            return None
+    # def _extract_with_llm(self, finding: Dict, notes: str) -> Optional[str]:
+    #     system_prompt = (
+    #         "You are a security analyst assistant. "
+    #         "Extract the reason a finding was marked false-positive from analyst notes. "
+    #         "Return a single concise sentence (max 200 chars). "
+    #         'Return JSON: {"fp_reason": "..."}. '
+    #         'If no clear reason: {"fp_reason": null}.'
+    #     )
+    #     cves = [
+    #         v.get("vulnerability_id", "")
+    #         for v in finding.get("vulnerability_ids", [])
+    #     ]
+    #     user_prompt = (
+    #         f"Finding: {finding.get('title', 'N/A')}\n"
+    #         f"CVE: {', '.join(cves)}\n"
+    #         f"Component: {finding.get('component_name', 'N/A')} "
+    #         f"{finding.get('component_version', '')}\n"
+    #         f"Analyst notes:\n{notes}"
+    #     )
+    #     try:
+    #         raw = self.llm.chat(system_prompt, user_prompt)
+    #         data = json.loads(raw)
+    #         return data.get("fp_reason")
+    #     except Exception as e:
+    #         logger.warning("LLM FP reason extraction failed: %s", e)
+    #         return None
 
 
 # ------------------------------------------------------------------
@@ -185,10 +186,8 @@ class KnowledgeEnricher:
     def _process_one(self, finding: Dict, stats: Dict, dry_run: bool) -> None:
         finding_id = finding.get("id")
 
-        _DEBUG("  _process_one(%s): extracting FP reason ...", finding_id)
         reason = self.extractor.extract(finding)
         if not reason:
-            _DEBUG("  _process_one(%s): no reason found, skipping", finding_id)
             logger.debug("Skipping finding %s: no FP reason extracted", finding_id)
             stats["skipped_no_reason"] += 1
             return
