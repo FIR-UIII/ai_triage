@@ -109,7 +109,7 @@ class DefectDojoClient:
         """
         url = f"{self.api_url}/api/v2/findings/"
         params = {
-            "test_id": test_id,
+            "test": test_id,
             "false_p": True,
             "active": False,
             "limit": 100,
