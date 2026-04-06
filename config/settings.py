@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     # RAG / Vector store
     chroma_dir: str = Field("./rag/chroma_db_metadata", validation_alias="CHROMA_DIR")
     chroma_collection: str = Field("example_collection", validation_alias="CHROMA_COLLECTION")
+    # SentenceTransformer model name for embeddings (must match model used when DB was created)
+    embedding_model: str = Field("all-MiniLM-L6-v2", validation_alias="EMBEDDING_MODEL")
     # Threshold for semantic similarity: [0, 1], higher = stricter match
     similarity_threshold: float = Field(0.75, validation_alias="SIMILARITY_THRESHOLD")
     # Threshold for deduplication when adding new knowledge entries

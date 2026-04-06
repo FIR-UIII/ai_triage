@@ -67,6 +67,7 @@ def _build_vector_store(settings):
     return VectorStore(
         collection_name=settings.chroma_collection,
         persist_directory=settings.chroma_dir,
+        embedding_model=settings.embedding_model,
     )
 
 
@@ -178,14 +179,30 @@ def enrich(
     ),
 ) -> None:
     """Populate the knowledge base from closed False Positive findings."""
+    import sys
+
+    def _canary(msg: str) -> None:
+        print(f"[CANARY] {msg}", file=sys.stderr, flush=True)
+
     settings = _load_settings()
     _setup_logging(settings.log_level)
 
+    _canary("enrich: settings loaded, embedding_model=%s" % settings.embedding_model)
+    _canary("enrich: dry_run=%s, product_id=%d" % (dry_run, product_id))
+
     from knowledge.enrichment import KnowledgeEnricher
 
+    _canary("enrich: building DefectDojo client ...")
     dd = _build_dd_client(settings)
+    _canary("enrich: DD client ready")
+
+    _canary("enrich: building VectorStore ...")
     store = _build_vector_store(settings)
+    _canary("enrich: VectorStore ready")
+
+    _canary("enrich: building LLM client ...")
     llm = _build_llm_client(settings)
+    _canary("enrich: LLM client ready")
 
     enricher = KnowledgeEnricher(
         dd_client=dd,
@@ -194,7 +211,9 @@ def enrich(
         dedup_threshold=settings.dedup_threshold,
     )
 
+    _canary("enrich: starting enrichment pipeline ...")
     stats = enricher.enrich_from_product(product_id=product_id, dry_run=dry_run)
+    _canary("enrich: pipeline complete")
     typer.echo(json.dumps(stats, indent=2))
 
 

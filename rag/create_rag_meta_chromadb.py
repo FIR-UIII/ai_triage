@@ -1,20 +1,25 @@
 import os
-from sentence_transformers import SentenceTransformer
 from chromadb import PersistentClient
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 # Define the directory containing the text file and the persistent directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
 persistent_directory = os.path.join(current_dir, "chroma_db_metadata")
 
-# Загружаем локальную модель (например, all-MiniLM-L6-v2, размерность 384)
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# Модель эмбеддингов — должна совпадать с EMBEDDING_MODEL в .env
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+print(f"Using embedding model: {EMBEDDING_MODEL}")
+
+ef = SentenceTransformerEmbeddingFunction(model_name=EMBEDDING_MODEL)
 
 # Инициализация клиента ChromaDB
 client = PersistentClient(path=persistent_directory)
 
-# Ручной ввод данных с метаданными
+# Создание коллекции с явной embedding function и cosine метрикой
 collection = client.create_collection(
-    name="example_collection"
+    name="example_collection",
+    metadata={"hnsw:space": "cosine"},
+    embedding_function=ef,
 )
 
 # если нужно добавить в коллекцию документ
