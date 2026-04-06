@@ -50,12 +50,25 @@ class VectorStore:
         self.client = chromadb.PersistentClient(path=persist_directory)
         _canary("ChromaDB client ready")
 
-        _canary("get_or_create_collection('%s') ...", collection_name)
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},
-            embedding_function=self._ef,
-        )
+        # Open collection: try existing first (without embedding_function to
+        # avoid metadata conflict if DB was created with a different EF type),
+        # then fall back to creating a new one with our explicit EF.
+        _canary("Trying to get existing collection '%s' ...", collection_name)
+        try:
+            self.collection = self.client.get_collection(name=collection_name)
+            # Attach our embedding function for client-side embed on query/add
+            self.collection._embedding_function = self._ef
+            _canary("Opened existing collection '%s', count=%d",
+                    collection_name, self.collection.count())
+        except Exception:
+            _canary("Collection '%s' not found, creating new ...", collection_name)
+            self.collection = self.client.create_collection(
+                name=collection_name,
+                metadata={"hnsw:space": "cosine"},
+                embedding_function=self._ef,
+            )
+            _canary("Created new collection '%s'", collection_name)
+
         _canary("Collection ready, count=%d", self.collection.count())
 
         self._validate_embedding_dimension()
