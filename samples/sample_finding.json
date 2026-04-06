@@ -1,13 +1,13 @@
 {
-    "id": 2741315,
+    "id": 2741306,
     "tags": [],
     "request_response": {
         "req_resp": []
     },
     "accepted_risks": [],
     "push_to_jira": false,
-    "age": 2,
-    "sla_days_remaining": 58,
+    "age": 1,
+    "sla_days_remaining": 59,
     "finding_meta": [],
     "related_fields": null,
     "jira_creation": null,
@@ -16,23 +16,23 @@
     "finding_groups": [],
     "vulnerability_ids": [],
     "reporter": 1,
-    "title": "app.rules.generic.html-templates.security.var-in-href",
+    "title": "app.rules.generic.ci.audit.changed-semgrepignore",
     "date": "2025-12-08",
     "sla_start_date": null,
     "sla_expiration_date": "2026-02-06",
-    "cwe": 79,
+    "cwe": 0,
     "epss_score": null,
     "epss_percentile": null,
     "cvssv3": null,
     "cvssv3_score": null,
     "url": null,
     "severity": "Medium",
-    "description": "**Result message:** Detected a template variable used in an anchor tag with the 'href' attribute. This allows a malicious actor to input the 'javascript:' URI and is subject to cross- site scripting (XSS) attacks. If using Flask, use 'url_for()' to safely generate a URL. If using Django, use the 'url' filter to safely generate a URL. If using Mustache, use a URL encoding library, or prepend a slash '/' to the variable for relative links (`href=\"/{{link}}\"`). You may also consider setting the Content Security Policy (CSP) header.\n**Snippet:**\n```                    Array[<a href=\"{{schema.items.$ref}}\">{{basename schema.items.$ref}}</a>]{{/ifeq}}```\n",
+    "description": "**Result message:** `doc/` has been added to the .semgrepignore list of ignored paths. Someone from app-sec may want to audit these changes.\n**Snippet:**\n```doc/\ndocs/```\n",
     "mitigation": null,
     "impact": null,
     "steps_to_reproduce": null,
     "severity_justification": null,
-    "references": "https://flask.palletsprojects.com/en/1.1.x/security/#cross-site-scripting-xss#:~:text=javascript:%20URI\nhttps://docs.djangoproject.com/en/3.1/ref/templates/builtins/#url\nhttps://github.com/pugjs/pug/issues/2952\nhttps://content-security-policy.com/",
+    "references": "https://semgrep.dev/docs/ignoring-files-folders-code/",
     "active": true,
     "verified": false,
     "false_p": false,
@@ -40,26 +40,26 @@
     "out_of_scope": false,
     "risk_accepted": false,
     "under_review": false,
-    "last_status_update": "2025-12-10T06:08:47.530538Z",
+    "last_status_update": "2025-12-09T14:45:54.306256Z",
     "under_defect_review": false,
     "is_mitigated": true,
     "thread_id": 0,
-    "mitigated": "2025-12-10T06:08:47.150566Z",
+    "mitigated": "2025-12-09T14:45:53.256375Z",
     "numerical_severity": "S2",
-    "last_reviewed": "2025-12-10T06:08:47.138614Z",
+    "last_reviewed": "2025-12-09T14:45:53.240579Z",
     "param": null,
     "payload": null,
-    "hash_code": "a758d9b34996dc6d8311e18ed5031c60bfc369d04a7443be8ce3c9b77c5a6dde",
-    "line": 45,
-    "file_path": "/builds/source/gren-hrtech/iam-team/iam/source/atomid-api-gateway/documents/api/templates/operation.hbs",
+    "hash_code": "b029c073de6df33fdee4a9400d7d3a608a44bade1fbca615b4de37a67956b103",
+    "line": 5,
+    "file_path": "/builds/source/gren-hrtech/iam-team/iam/source/atomid-api-gateway/.semgrepignore",
     "component_name": null,
     "component_version": null,
     "static_finding": true,
     "dynamic_finding": false,
-    "created": "2025-12-08T14:07:35.429806Z",
+    "created": "2025-12-08T14:07:35.126352Z",
     "scanner_confidence": null,
-    "unique_id_from_tool": "fbc03d326179b31ba4ad64ca8b80645ed9853e37946d779317f803df8c57337980f0114068bb873b4ff954a49cb6d33e61ea19daa9c6063851a41fa3ce7deceb_1",
-    "vuln_id_from_tool": "app.rules.generic.html-templates.security.var-in-href",
+    "unique_id_from_tool": "37e6bdff7609123f43e27a086c1ecd14ac7c5563ffdd8f8f51945e4db5d8f9cdfa3002a6c16d01f0813ab7dd1c067893e9f5d3ff652c38c877978e98d6f63024_4",
+    "vuln_id_from_tool": "app.rules.generic.ci.audit.changed-semgrepignore",
     "sast_source_object": null,
     "sast_sink_object": null,
     "sast_source_line": null,
@@ -81,7 +81,7 @@
     "reviewers": [],
     "notes": [
         {
-            "id": 1763054,
+            "id": 1751592,
             "author": {
                 "id": 354,
                 "username": "gren-d-arypaderin",
@@ -91,7 +91,7 @@
             "editor": null,
             "history": [
                 {
-                    "id": 10301,
+                    "id": 10300,
                     "current_editor": {
                         "id": 354,
                         "username": "gren-d-arypaderin",
@@ -99,16 +99,16 @@
                         "last_name": "gren-d-ArYPaderin"
                     },
                     "note_type": null,
-                    "data": "False-positive. сработка идет на шаблонизатор react .hbs, значения подставляются с серверного компонента генерируюсь через фреймворк, и у пользователя нет возможности подставить свое значение",
-                    "time": "2025-12-10T06:08:47.176528Z"
+                    "data": "False-positive. Добавление ignore файла было согласовано с блоком ИБ",
+                    "time": "2025-12-09T14:45:53.362963Z"
                 }
             ],
             "note_type": null,
-            "entry": "False-positive. сработка идет на шаблонизатор react .hbs, значения подставляются с серверного компонента генерируюсь через фреймворк, и у пользователя нет возможности подставить свое значение",
-            "date": "2025-12-10T06:08:47.176528Z",
+            "entry": "False-positive. Добавление ignore файла было согласовано с блоком ИБ",
+            "date": "2025-12-09T14:45:53.362963Z",
             "private": false,
             "edited": false,
-            "edit_time": "2025-12-10T06:08:47.176605Z"
+            "edit_time": "2025-12-09T14:45:53.363040Z"
         }
     ],
     "files": [],
@@ -117,13 +117,13 @@
     ],
     "test_name": "Semgrep JSON Report",
     "triage_result": {
-        "finding_id": 2741315,
+        "finding_id": 2741306,
         "action": "llm_analysis",
         "verdict": "needs-review",
         "confidence": 0.7,
-        "explanation": "The snippet uses {{schema.items.$ref}} in an href attribute, which could allow XSS if not properly sanitized. The file is in the 'documents' directory, but the context lacks details on how the variable is used (e.g., if it's a test fixture or safe context). Further review is needed to determine if the variable is properly sanitized or if it's a false positive.",
+        "explanation": "The finding indicates that 'doc/' and 'docs/' directories are added to .semgrepignore, which may hide code changes. However, without context on why these paths are ignored or if they contain sensitive information, it's unclear if this is a false-positive. The lack of specific vulnerability details or approvals from security teams suggests a need for manual review.",
         "similar_finding_ids": [],
-        "dd_comment": "[LLM Triage] needs-review (confidence=0.70): The snippet uses {{schema.items.$ref}} in an href attribute, which could allow XSS if not properly sanitized. The file is in the 'documents' directory, but the context lacks details on how the variable is used (e.g., if it's a test fixture or safe context). Further review is needed to determine if the variable is properly sanitized or if it's a false positive.",
+        "dd_comment": "[LLM Triage] needs-review (confidence=0.70): The finding indicates that 'doc/' and 'docs/' directories are added to .semgrepignore, which may hide code changes. However, without context on why these paths are ignored or if they contain sensitive information, it's unclear if this is a false-positive. The lack of specific vulnerability details or approvals from security teams suggests a need for manual review.",
         "metadata": {}
     }
 }

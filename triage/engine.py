@@ -167,7 +167,7 @@ class TriageEngine:
         search_text = cve or finding.get("title", "")
         if not search_text:
             return None
-        matches = self.store.search_by_similarity(search_text, n_results=3)
+        matches = self.store.search_by_similarity(search_text, n_results=3, rule=search_text)
         if not matches:
             return None
         best = matches[0]
