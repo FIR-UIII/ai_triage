@@ -221,7 +221,7 @@ store.add_entry(KnowledgeEntry(
     cve="CVE-2019-1543",
     component_name="openssl",
     component_version="1:1.1.1zd-1.el7",
-    product_id=298,
+    test_id=298,
 ))
 ```
 
@@ -365,7 +365,7 @@ enricher = KnowledgeEnricher(
     llm_client=LlamaCppClient(model_path="./llm/Qwen3-4B.gguf"),
     dedup_threshold=0.92,
 )
-stats = enricher.enrich_from_product(product_id=298, dry_run=False)
+stats = enricher.enrich_from_product(test_id=298, dry_run=False)
 ```
 
 ---

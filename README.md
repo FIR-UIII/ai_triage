@@ -220,7 +220,7 @@ store.add_entry(KnowledgeEntry(
     cve="CVE-2019-1543",
     component_name="openssl",
     component_version="1:1.1.1zd-1.el7",
-    product_id=298,
+    test_id=298,
 ))
 ```
 

@@ -13,12 +13,12 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
-_CANARY = "[CANARY]"
+_DEBUG = "[DEBUG]"
 
 
-def _canary(msg: str, *args) -> None:
+def _DEBUG(msg: str, *args) -> None:
     formatted = msg % args if args else msg
-    print(f"{_CANARY} {formatted}", file=sys.stderr, flush=True)
+    print(f"{_DEBUG} {formatted}", file=sys.stderr, flush=True)
 
 
 # Default timeout for HTTP requests (connect, read) in seconds
@@ -38,7 +38,7 @@ class DefectDojoClient:
                 "Content-Type": "application/json",
             }
         )
-        _canary("DDClient init: api_url=%s, verify_ssl=%s", self.api_url, self.verify)
+        _DEBUG("DDClient init: api_url=%s, verify_ssl=%s", self.api_url, self.verify)
 
     # ------------------------------------------------------------------
     # Low-level helpers
@@ -50,23 +50,23 @@ class DefectDojoClient:
         before_sleep=before_sleep_log(logger, logging.WARNING),
     )
     def _get(self, url: str, params: Optional[Dict] = None) -> Dict:
-        _canary("HTTP GET %s params=%s verify=%s", url, params, self.verify)
+        _DEBUG("HTTP GET %s params=%s verify=%s", url, params, self.verify)
         try:
             r = self.session.get(url, params=params, verify=self.verify, timeout=_HTTP_TIMEOUT)
-            _canary("HTTP GET %s -> status=%d", url, r.status_code)
+            _DEBUG("HTTP GET %s -> status=%d", url, r.status_code)
             r.raise_for_status()
             return r.json()
         except requests.exceptions.SSLError as e:
-            _canary("SSL ERROR on GET %s: %s", url, e)
+            _DEBUG("SSL ERROR on GET %s: %s", url, e)
             raise DDApiError(f"SSL error on GET {url}: {e}") from e
         except requests.exceptions.ConnectionError as e:
-            _canary("CONNECTION ERROR on GET %s: %s", url, e)
+            _DEBUG("CONNECTION ERROR on GET %s: %s", url, e)
             raise DDApiError(f"Connection error on GET {url}: {e}") from e
         except requests.exceptions.Timeout as e:
-            _canary("TIMEOUT on GET %s: %s", url, e)
+            _DEBUG("TIMEOUT on GET %s: %s", url, e)
             raise DDApiError(f"Timeout on GET {url}: {e}") from e
         except requests.exceptions.RequestException as e:
-            _canary("REQUEST ERROR on GET %s: %s", url, e)
+            _DEBUG("REQUEST ERROR on GET %s: %s", url, e)
             raise DDApiError(f"GET {url} failed: {e}") from e
 
     def _paginate(self, url: str, params: Optional[Dict] = None) -> List[Dict]:
@@ -74,15 +74,15 @@ class DefectDojoClient:
         items: List[Dict] = []
         page = 1
         while url:
-            _canary("_paginate: page=%d, url=%s", page, url)
+            _DEBUG("_paginate: page=%d, url=%s", page, url)
             data = self._get(url, params=params)
             results = data.get("results") or []
             items.extend(results)
-            _canary("_paginate: page=%d got %d results (total=%d)", page, len(results), len(items))
+            _DEBUG("_paginate: page=%d got %d results (total=%d)", page, len(results), len(items))
             url = data.get("next")
             params = None  # params only needed on first request
             page += 1
-        _canary("_paginate: done, total items=%d", len(items))
+        _DEBUG("_paginate: done, total items=%d", len(items))
         return items
 
     # ------------------------------------------------------------------
@@ -101,7 +101,7 @@ class DefectDojoClient:
         logger.info("Fetched %d findings for test %d", len(findings), test_id)
         return findings
 
-    def fetch_false_positives_by_product(self, product_id: int) -> List[Dict]:
+    def fetch_false_positives_by_product(self, test_id: int) -> List[Dict]:
         """Fetch all closed False Positive findings for a product.
 
         Filters: false_p=True, active=False (i.e., mitigated/closed FPs).
@@ -109,17 +109,17 @@ class DefectDojoClient:
         """
         url = f"{self.api_url}/api/v2/findings/"
         params = {
-            "product": product_id,
+            "test_id": test_id,
             "false_p": True,
             "active": False,
             "limit": 100,
         }
-        _canary("fetch_false_positives_by_product: product_id=%d, url=%s, params=%s",
-                product_id, url, params)
+        _DEBUG("fetch_false_positives_by_product: test_id=%d, url=%s, params=%s",
+                test_id, url, params)
         findings = self._paginate(url, params=params)
-        _canary("fetch_false_positives_by_product: got %d findings", len(findings))
+        _DEBUG("fetch_false_positives_by_product: got %d findings", len(findings))
         logger.info(
-            "Fetched %d false positives for product %d", len(findings), product_id
+            "Fetched %d false positives for test_id %d", len(findings), test_id
         )
         return findings
 

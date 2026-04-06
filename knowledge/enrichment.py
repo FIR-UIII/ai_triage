@@ -20,12 +20,12 @@ from knowledge.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
-_CANARY = "[CANARY]"
+_DEBUG = "[DEBUG]"
 
 
-def _canary(msg: str, *args) -> None:
+def _DEBUG(msg: str, *args) -> None:
     formatted = msg % args if args else msg
-    print(f"{_CANARY} {formatted}", file=sys.stderr, flush=True)
+    print(f"{_DEBUG} {formatted}", file=sys.stderr, flush=True)
 
 # ------------------------------------------------------------------
 # FP reason extraction
@@ -143,7 +143,7 @@ class KnowledgeEnricher:
         self.extractor = FPReasonExtractor(llm_client)
         self.dedup_threshold = dedup_threshold
 
-    def enrich_from_product(self, product_id: int, dry_run: bool = False) -> Dict:
+    def enrich_from_product(self, test_id: int, dry_run: bool = False) -> Dict:
         """Run the full enrichment pipeline for a DefectDojo product.
 
         Returns a dict with enrichment statistics.
@@ -157,27 +157,27 @@ class KnowledgeEnricher:
             "errors": 0,
         }
 
-        _canary("enrich_from_product: fetching FPs for product_id=%d ...", product_id)
-        fps = self.dd.fetch_false_positives_by_product(product_id)
+        _DEBUG("enrich_from_product: fetching FPs for product_id=%d ...", test_id)
+        fps = self.dd.fetch_false_positives_by_product(test_id)
         stats["fetched"] = len(fps)
-        _canary("enrich_from_product: fetched %d false positives", len(fps))
+        _DEBUG("enrich_from_product: fetched %d false positives", len(fps))
         logger.info(
-            "Enriching from %d false positives (product_id=%d)", len(fps), product_id
+            "Enriching from %d false positives (test_id=%d)", len(fps), test_id
         )
 
         for i, finding in enumerate(fps, 1):
             stats["processed"] += 1
             finding_id = finding.get("id")
-            _canary("enrich_from_product: processing finding %d/%d (id=%s) ...",
+            _DEBUG("enrich_from_product: processing finding %d/%d (id=%s) ...",
                     i, len(fps), finding_id)
             try:
                 self._process_one(finding, stats, dry_run)
             except Exception as e:
                 logger.error("Error processing finding %s: %s", finding_id, e)
-                _canary("enrich_from_product: ERROR on finding %s: %s", finding_id, e)
+                _DEBUG("enrich_from_product: ERROR on finding %s: %s", finding_id, e)
                 stats["errors"] += 1
 
-        _canary("enrich_from_product: DONE, stats=%s", stats)
+        _DEBUG("enrich_from_product: DONE, stats=%s", stats)
         logger.info("Enrichment complete: %s", stats)
         return stats
 
@@ -186,14 +186,14 @@ class KnowledgeEnricher:
     def _process_one(self, finding: Dict, stats: Dict, dry_run: bool) -> None:
         finding_id = finding.get("id")
 
-        _canary("  _process_one(%s): extracting FP reason ...", finding_id)
+        _DEBUG("  _process_one(%s): extracting FP reason ...", finding_id)
         reason = self.extractor.extract(finding)
         if not reason:
-            _canary("  _process_one(%s): no reason found, skipping", finding_id)
+            _DEBUG("  _process_one(%s): no reason found, skipping", finding_id)
             logger.debug("Skipping finding %s: no FP reason extracted", finding_id)
             stats["skipped_no_reason"] += 1
             return
-        _canary("  _process_one(%s): reason=%.60s...", finding_id, reason)
+        _DEBUG("  _process_one(%s): reason=%.60s...", finding_id, reason)
 
         cves = [
             v.get("vulnerability_id", "")
@@ -207,10 +207,10 @@ class KnowledgeEnricher:
         doc_hash = hashlib.sha256(document.encode()).hexdigest()[:16]
 
         # Deduplication: check semantic similarity
-        _canary("  _process_one(%s): checking for duplicates ...", finding_id)
+        _DEBUG("  _process_one(%s): checking for duplicates ...", finding_id)
         duplicate = self.store.find_duplicate(document, threshold=self.dedup_threshold)
         if duplicate:
-            _canary("  _process_one(%s): duplicate found (score=%.3f), skipping",
+            _DEBUG("  _process_one(%s): duplicate found (score=%.3f), skipping",
                     finding_id, duplicate["score"])
             logger.debug(
                 "Skipping finding %s: duplicate found (score=%.3f)",
@@ -233,11 +233,11 @@ class KnowledgeEnricher:
         )
 
         if dry_run:
-            _canary("  _process_one(%s): [DRY RUN] would add entry", finding_id)
+            _DEBUG("  _process_one(%s): [DRY RUN] would add entry", finding_id)
             logger.info("[DRY RUN] Would add entry for finding %s: %s", finding_id, document[:80])
             stats["added"] += 1
         elif self.store.add_entry(entry):
-            _canary("  _process_one(%s): entry added", finding_id)
+            _DEBUG("  _process_one(%s): entry added", finding_id)
             stats["added"] += 1
 
     @staticmethod

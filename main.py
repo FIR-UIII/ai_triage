@@ -171,8 +171,8 @@ def triage(
 
 @app.command()
 def enrich(
-    product_id: int = typer.Option(
-        ..., "--product-id", "-p", help="DefectDojo product ID"
+    test_id: int = typer.Option(
+        ..., "--test-id", "-t", help="DefectDojo test ID"
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Preview changes without writing to knowledge base"
@@ -181,28 +181,28 @@ def enrich(
     """Populate the knowledge base from closed False Positive findings."""
     import sys
 
-    def _canary(msg: str) -> None:
-        print(f"[CANARY] {msg}", file=sys.stderr, flush=True)
+    def _DEBUG(msg: str) -> None:
+        print(f"[DEBUG] {msg}", file=sys.stderr, flush=True)
 
     settings = _load_settings()
     _setup_logging(settings.log_level)
 
-    _canary("enrich: settings loaded, embedding_model=%s" % settings.embedding_model)
-    _canary("enrich: dry_run=%s, product_id=%d" % (dry_run, product_id))
+    _DEBUG("enrich: settings loaded, embedding_model=%s" % settings.embedding_model)
+    _DEBUG("enrich: dry_run=%s, test_id=%d" % (dry_run, test_id))
 
     from knowledge.enrichment import KnowledgeEnricher
 
-    _canary("enrich: building DefectDojo client ...")
+    _DEBUG("enrich: building DefectDojo client ...")
     dd = _build_dd_client(settings)
-    _canary("enrich: DD client ready")
+    _DEBUG("enrich: DD client ready")
 
-    _canary("enrich: building VectorStore ...")
+    _DEBUG("enrich: building VectorStore ...")
     store = _build_vector_store(settings)
-    _canary("enrich: VectorStore ready")
+    _DEBUG("enrich: VectorStore ready")
 
-    _canary("enrich: building LLM client ...")
+    _DEBUG("enrich: building LLM client ...")
     llm = _build_llm_client(settings)
-    _canary("enrich: LLM client ready")
+    _DEBUG("enrich: LLM client ready")
 
     enricher = KnowledgeEnricher(
         dd_client=dd,
@@ -211,9 +211,9 @@ def enrich(
         dedup_threshold=settings.dedup_threshold,
     )
 
-    _canary("enrich: starting enrichment pipeline ...")
-    stats = enricher.enrich_from_product(product_id=product_id, dry_run=dry_run)
-    _canary("enrich: pipeline complete")
+    _DEBUG("enrich: starting enrichment pipeline ...")
+    stats = enricher.enrich_from_product(test_id=test_id, dry_run=dry_run)
+    _DEBUG("enrich: pipeline complete")
     typer.echo(json.dumps(stats, indent=2))
 
 
