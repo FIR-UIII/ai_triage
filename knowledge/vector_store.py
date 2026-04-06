@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 _DEDUP_THRESHOLD_DEFAULT = 0.92
 _SIMILARITY_THRESHOLD_DEFAULT = 0.75
 
-_CANARY = "[CANARY]"
+_CANARY = "[DEBUG]"
 
 
 def _canary(msg: str, *args) -> None:
