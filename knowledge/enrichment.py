@@ -31,27 +31,24 @@ def _DEBUG(msg: str, *args) -> None:
 # FP reason extraction
 # ------------------------------------------------------------------
 
-# Common Russian / English phrases that signal an FP explanation follows
-_FP_PATTERNS = [
-    r"(?:ложная тревога|false.positive|fp)[:\s]+(.{20,400})",
-    r"(?:причина|reason)[:\s]+(.{20,400})",
-    r"(?:патч|исправление|fix|backport)[^.]{0,80}?(?:вендора|vendor)[^.]*\.",
-    r"(?:используется версия|version used)[^.]*\.",
-    r"(?:сканер не интерпрет|scanner misidentif)[^.]*\.",
+# Patterns that indicate bot/auto-close comments — these should be EXCLUDED
+# from enrichment (they contain no analyst reasoning).
+_SKIP_PATTERNS = [
+    r"Mitigated by Semgrep JSON Report re-upload",
 ]
 
-_COMPILED_PATTERNS = [
-    re.compile(p, re.IGNORECASE | re.DOTALL) for p in _FP_PATTERNS
+_COMPILED_SKIP_PATTERNS = [
+    re.compile(p, re.IGNORECASE) for p in _SKIP_PATTERNS
 ]
 
 
 class FPReasonExtractor:
     """Extracts and normalises the false-positive reason from finding notes.
 
-    Strategy (cheapest-first):
-      1. Regex pattern matching against note text.
-      2. LLM call if patterns produce no result and an llm_client is provided.
-      3. Truncated raw note as last resort.
+    Strategy:
+      1. Check for bot/auto-close patterns — if found, return None (skip).
+      2. Use truncated raw note as the reason.
+      (LLM extraction temporarily disabled.)
     """
 
     def __init__(self, llm_client=None):
@@ -66,27 +63,29 @@ class FPReasonExtractor:
 
         combined = "\n---\n".join(entries)
 
-        reason = self._extract_by_pattern(combined)
-        if reason:
-            return reason
+        # Skip bot/auto-close comments — no analyst reasoning to extract
+        if self._is_bot_comment(combined):
+            _DEBUG("  extract: bot/auto-close comment detected, skipping")
+            return None
 
-        if self.llm:
-            reason = self._extract_with_llm(finding, combined)
-            if reason:
-                return reason
+        # TODO: LLM extraction temporarily disabled
+        # if self.llm:
+        #     reason = self._extract_with_llm(finding, combined)
+        #     if reason:
+        #         return reason
 
-        # Last resort: use a truncated note (at least something goes into RAG)
+        # Use truncated note as the reason
         return combined[:300].strip() or None
 
     # ------------------------------------------------------------------
 
-    def _extract_by_pattern(self, text: str) -> Optional[str]:
-        for pattern in _COMPILED_PATTERNS:
-            m = pattern.search(text)
-            if m:
-                # Group 1 is preferred (the captured reason), else full match
-                return (m.group(1) if m.lastindex else m.group(0)).strip()
-        return None
+    @staticmethod
+    def _is_bot_comment(text: str) -> bool:
+        """Return True if text matches a known bot/auto-close pattern."""
+        for pattern in _COMPILED_SKIP_PATTERNS:
+            if pattern.search(text):
+                return True
+        return False
 
     def _extract_with_llm(self, finding: Dict, notes: str) -> Optional[str]:
         system_prompt = (
