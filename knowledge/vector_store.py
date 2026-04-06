@@ -166,14 +166,26 @@ class VectorStore:
         text: str,
         n_results: int = 3,
         threshold: float = _SIMILARITY_THRESHOLD_DEFAULT,
+        rule: Optional[str] = None,
     ) -> List[Dict]:
-        """Semantic similarity search returning items above the score threshold."""
+        """Semantic similarity search returning items above the score threshold.
+
+        If *rule* is provided, results are pre-filtered by the ``rule``
+        metadata field so only entries from the same SAST rule are compared.
+        """
         if not text:
             return []
+
+        where = {"rule": {"$eq": rule}} if rule else None
+
         try:
-            _DEBUG("search_by_similarity: n_results=%d, threshold=%.2f, text=%.60s...",
-                    n_results, threshold, text)
-            res = self.collection.query(query_texts=[text], n_results=n_results)
+            _DEBUG("search_by_similarity: n_results=%d, threshold=%.2f, rule=%s, text=%.60s...",
+                    n_results, threshold, rule, text)
+            res = self.collection.query(
+                query_texts=[text],
+                n_results=n_results,
+                where=where,
+            )
             items = self._pack_query_results(res)
             print(items)
             # закомментировано - нужно определить фильтрацию пока не знаю каким значениями отсекать
@@ -204,10 +216,11 @@ class VectorStore:
         self,
         text: str,
         threshold: float = _DEDUP_THRESHOLD_DEFAULT,
+        rule: Optional[str] = None,
     ) -> Optional[Dict]:
         """Return the most similar entry if it exceeds the dedup threshold."""
-        _DEBUG("find_duplicate: threshold=%.2f", threshold)
-        results = self.search_by_similarity(text, n_results=1, threshold=threshold)
+        _DEBUG("find_duplicate: threshold=%.2f, rule=%s", threshold, rule)
+        results = self.search_by_similarity(text, n_results=1, threshold=threshold, rule=rule)
         return results[0] if results else None
 
     # ------------------------------------------------------------------

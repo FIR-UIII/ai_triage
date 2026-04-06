@@ -202,13 +202,16 @@ class KnowledgeEnricher:
         cve = cves[0] if cves else None
         component = finding.get("component_name") or ""
         component_version = finding.get("component_version") or ""
+        rule = finding.get("title") or ""
 
         document = self._build_document(reason, cve, component, component_version)
         doc_hash = hashlib.sha256(document.encode()).hexdigest()[:16]
 
-        # Deduplication: check semantic similarity
-        _DEBUG("  _process_one(%s): checking for duplicates ...", finding_id)
-        duplicate = self.store.find_duplicate(document, threshold=self.dedup_threshold)
+        # Deduplication: check semantic similarity, scoped to same rule
+        _DEBUG("  _process_one(%s): checking for duplicates (rule=%s) ...", finding_id, rule)
+        duplicate = self.store.find_duplicate(
+            document, threshold=self.dedup_threshold, rule=rule or None,
+        )
         if duplicate:
             _DEBUG("  _process_one(%s): duplicate found (score=%.3f), skipping",
                     finding_id, duplicate["score"])
