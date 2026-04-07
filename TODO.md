@@ -30,3 +30,15 @@ LLM_API_KEY=none
   "verdict": "needs-review",
   "confidence": 0.5,
   "explanation": "The code snippet sets a field in a struct based on an environment variable, which is a common pattern. Without additional 
+
+2026-04-07 17:00:18,777 [ERROR] analysis.llm_analyzer: LLM returned non-JSON response: Expecting value: line 1 column 1 (char 0) | raw=```json
+{
+  "verdict": "false-positive",
+  "confidence": 0.9,
+  "explanation": "The code snippet provided is part of a function that handles special values like 'Infinity'. The use of `strcpy` here is
+
+  2026-04-07 17:00:15,391 [ERROR] analysis.llm_analyzer: LLM returned non-JSON response: Expecting value: line 1 column 1 (char 0) | raw=```json
+{
+  "verdict": "needs-review",
+  "confidence": 0.5,
+  "explanation": "The code snippet uses strcpy to copy the string \"sNaN\" into the buffer pointed to by cp. While this can lead to a buffer
