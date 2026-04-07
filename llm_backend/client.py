@@ -62,6 +62,7 @@ class LlamaCppClient(LLMClient):
             n_ctx=n_ctx,
             n_threads=n_threads,
             verbose=False,
+            n_gpu_layers=-1
         )
         self.temperature = temperature
         logger.info("LlamaCppClient loaded: %s", model_path)

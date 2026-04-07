@@ -41,7 +41,7 @@ DefectDojo API
 │  Stage 1. Deterministic Rules            │
 │  Stage 2. Exact Meta Match ──► ChromaDB  │
 │  Stage 3. Semantic Similarity ─► ChromaDB│
-│  Stage 4. LLM Analysis ────► LLM + RAG  │
+│  Stage 4. LLM Analysis ────► LLM + RAG   │
 │  Stage 5. Reachability ──► Semgrep/CodeQL│
 │  Stage 6. Manual Review fallback         │
 └──────────────────────────────────────────┘
@@ -127,6 +127,7 @@ POST_COMMENTS=false      # true → писать результат как ко�
 ```bash
 mkdir -p ./llm
 pip install huggingface_hub
+hf --help # или huggingface-cli --help
 huggingface-cli download Qwen/Qwen3-4B-GGUF qwen3-4b-q4_k_m.gguf --local-dir ./llm
 ```
 

@@ -20,6 +20,8 @@ print(f"Количество объектов: {collection.count()}\n")
 # Получаем все данные
 data = collection.get()
 
+print(data)
+
 # Выводим только finding IDs и rules
 finding_ids = set()
 rules = set()

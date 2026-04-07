@@ -80,7 +80,8 @@ class LLMAnalyzer:
         normalized = self._normalize_finding(finding)
         context_text = self._format_context(rag_context)
         code_block = self._format_code_context(code_context)
-        print(f'!!!!!!!!!! code_block {code_block}')
+        if code_block is None:
+            logger.warning("No code contex found")
         system_prompt = _SYSTEM_PROMPT.format(
             rag_context=context_text,
             code_context_block=code_block,
