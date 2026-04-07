@@ -14,3 +14,17 @@ https://huggingface.co/scthornton/qwen2.5-coder-7b-securecode
 Что за запрос 2026-04-07 16:22:32,880 [DEBUG] urllib3.connectionpool: https://us.i.posthog.com:443 "POST /batch/ HTTP/1.1" 200 15
 
 проверить работу на другом беке LLM через докер поднять и запустить
+
+при запуске с параметрами 
+# llama-server -m C:\Users\Admin\Desktop\Project\ai_demo\llm\qwen2.5-coder-7b-instruct-q4_k_m.gguf --host 127.0.0.1 --port 8080 -ngl 40
+# env
+LLM_API_BASE_URL=http://localhost:8080/v1
+LLM_API_MODEL=default
+LLM_API_KEY=none
+
+Постоянно обрезается ответ
+2026-04-07 16:58:51,656 [ERROR] analysis.llm_analyzer: LLM returned non-JSON response: Expecting value: line 1 column 1 (char 0) | raw=```json
+{
+  "verdict": "needs-review",
+  "confidence": 0.5,
+  "explanation": "The code snippet sets a field in a struct based on an environment variable, which is a common pattern. Without additional 

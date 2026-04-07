@@ -178,6 +178,9 @@ llama-server \
   --hf-file phi-4-mini-instruct-q4_k_m.gguf \
   --ctx-size 8192 --port 8080 --offline --metrics
 
+# Запуск на GPU (нужен бинарный файл llama-b8685-bin-win-cuda-12.4-x64)
+llama-server -m C:\Users\Admin\Desktop\Project\ai_demo\llm\qwen2.5-coder-7b-instruct-q4_k_m.gguf --host 127.0.0.1 --port 8080 -ngl 40
+
 # Проверить: GET http://localhost:8080/health
 ```
 
