@@ -10,6 +10,8 @@ https://huggingface.co/scthornton/qwen2.5-coder-7b-securecode
 
 - в лог нужно добавить какой файл был выбран для анализа и передан в LLM
 
+- фильтрация для output добавить - например чтобы выводить только fp а need review не выводить
+
 сократить кол-во строк кода из контекса для анализа LLM 
 Что за запрос 2026-04-07 16:22:32,880 [DEBUG] urllib3.connectionpool: https://us.i.posthog.com:443 "POST /batch/ HTTP/1.1" 200 15
 
