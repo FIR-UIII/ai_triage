@@ -19,8 +19,23 @@ print(f"Количество объектов: {collection.count()}\n")
 
 # Получаем все данные
 data = collection.get()
-print("ID объектов:", data['ids'])
-if data['documents']:
-    print("Документы:", data['documents'])
+
+# Выводим только finding IDs и rules
+finding_ids = set()
+rules = set()
 if data['metadatas']:
-    print("Метаданные:", data['metadatas'])
+    for md in data['metadatas']:
+        fid = md.get('source_finding_id')
+        if fid is not None:
+            finding_ids.add(fid)
+        rule = md.get('rule')
+        if rule:
+            rules.add(rule)
+
+print(f"Finding IDs ({len(finding_ids)}):")
+for fid in sorted(finding_ids):
+    print(f"  - {fid}")
+
+print(f"\nRules ({len(rules)}):")
+for rule in sorted(rules):
+    print(f"  - {rule}")

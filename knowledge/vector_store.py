@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 from typing import Dict, List, Optional
 
@@ -6,6 +7,10 @@ import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 from core.models import KnowledgeEntry
+
+# Force offline mode for HuggingFace — use cached/local model only
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 logger = logging.getLogger(__name__)
 
@@ -187,12 +192,10 @@ class VectorStore:
                 where=where,
             )
             items = self._pack_query_results(res)
-            print(items)
-            # закомментировано - нужно определить фильтрацию пока не знаю каким значениями отсекать
-            # _DEBUG("search_by_similarity: %d raw results, filtering by threshold", len(items))
-            # filtered = [item for item in items if item["score"] >= threshold]
-            # _DEBUG("search_by_similarity: %d results above threshold", len(filtered))
-            return items
+            _DEBUG("search_by_similarity: %d raw results, filtering by threshold %.2f", len(items), threshold)
+            filtered = [item for item in items if item["score"] >= threshold]
+            _DEBUG("search_by_similarity: %d results above threshold", len(filtered))
+            return filtered
         except Exception as e:
             logger.error("Similarity search failed: %s", e)
             return []
@@ -241,6 +244,54 @@ class VectorStore:
         except Exception as e:
             logger.error("Failed to add entry %s: %s", entry.id, e)
             return False
+
+    def delete_by_finding_id(self, finding_id: int) -> int:
+        """Delete all entries whose source_finding_id matches the given finding ID.
+
+        Returns the number of deleted entries.
+        """
+        try:
+            res = self.collection.get(
+                where={"source_finding_id": {"$eq": finding_id}},
+            )
+            ids_to_delete = res.get("ids", [])
+            if not ids_to_delete:
+                logger.info("No entries found for finding_id=%s", finding_id)
+                return 0
+            self.collection.delete(ids=ids_to_delete)
+            logger.info("Deleted %d entries for finding_id=%s", len(ids_to_delete), finding_id)
+            return len(ids_to_delete)
+        except Exception as e:
+            logger.error("Failed to delete entries for finding_id=%s: %s", finding_id, e)
+            return 0
+
+    def delete_by_id(self, entry_id: str) -> bool:
+        """Delete a single entry by its ChromaDB document ID."""
+        try:
+            self.collection.delete(ids=[entry_id])
+            logger.info("Deleted entry: %s", entry_id)
+            return True
+        except Exception as e:
+            logger.error("Failed to delete entry %s: %s", entry_id, e)
+            return False
+
+    def delete_by_rule(self, rule: str) -> int:
+        """Delete all entries matching a given SAST rule.
+
+        Returns the number of deleted entries.
+        """
+        try:
+            res = self.collection.get(where={"rule": {"$eq": rule}})
+            ids_to_delete = res.get("ids", [])
+            if not ids_to_delete:
+                logger.info("No entries found for rule='%s'", rule)
+                return 0
+            self.collection.delete(ids=ids_to_delete)
+            logger.info("Deleted %d entries for rule='%s'", len(ids_to_delete), rule)
+            return len(ids_to_delete)
+        except Exception as e:
+            logger.error("Failed to delete entries for rule='%s': %s", rule, e)
+            return 0
 
     def entry_exists(self, entry_id: str) -> bool:
         res = self.collection.get(ids=[entry_id])

@@ -230,6 +230,9 @@ class KnowledgeEnricher:
             rule=rule or None,
             source_finding_id=finding_id,
             product_id=finding.get("product") or finding.get("product_id"),
+            test_id=finding.get("test"),
+            file_path=finding.get("file_path") or finding.get("sast_source_file_path"),
+            test_name=finding.get("test_name"),
             date=(finding.get("mitigated") or "")[:10] or None,
             hash=doc_hash,
         )

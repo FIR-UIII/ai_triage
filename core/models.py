@@ -80,6 +80,9 @@ class KnowledgeEntry(BaseModel):
     rule: Optional[str] = None
     source_finding_id: Optional[int] = None
     product_id: Optional[int] = None
+    test_id: Optional[int] = None
+    file_path: Optional[str] = None
+    test_name: Optional[str] = None
     date: Optional[str] = None
     hash: Optional[str] = None
 

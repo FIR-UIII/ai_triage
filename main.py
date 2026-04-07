@@ -35,11 +35,29 @@ app = typer.Typer(
 
 
 def _setup_logging(level: str = "INFO") -> None:
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        stream=sys.stderr,
+    log_dir = Path("log")
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+
+    # File handler — DEBUG and above, detailed
+    file_handler = logging.FileHandler(
+        log_dir / "ai_triage.log", encoding="utf-8"
     )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    )
+    root.addHandler(file_handler)
+
+    # Console handler — WARNING and above, minimal
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setLevel(logging.WARNING)
+    console_handler.setFormatter(
+        logging.Formatter("[%(levelname)s] %(message)s")
+    )
+    root.addHandler(console_handler)
 
 
 # ------------------------------------------------------------------
@@ -244,6 +262,96 @@ def fetch(
 
     logger.info("Saved %d findings to %s", len(findings), dest)
     typer.echo(f"Saved {len(findings)} findings to {dest}")
+
+
+@app.command()
+def rag_delete(
+    finding_id: Optional[int] = typer.Option(
+        None, "--finding-id", "-f", help="Delete entries by source finding ID"
+    ),
+    entry_id: Optional[str] = typer.Option(
+        None, "--entry-id", "-e", help="Delete a single entry by its RAG document ID"
+    ),
+    rule: Optional[str] = typer.Option(
+        None, "--rule", "-r", help="Delete all entries matching a SAST rule"
+    ),
+) -> None:
+    """Delete specific entries from the RAG knowledge base."""
+    if not finding_id and not entry_id and not rule:
+        typer.echo("Specify at least one of: --finding-id, --entry-id, --rule")
+        raise typer.Exit(1)
+
+    settings = _load_settings()
+    _setup_logging(settings.log_level)
+    store = _build_vector_store(settings)
+
+    if finding_id:
+        count = store.delete_by_finding_id(finding_id)
+        typer.echo(f"Deleted {count} entries for finding_id={finding_id}")
+    if entry_id:
+        ok = store.delete_by_id(entry_id)
+        typer.echo(f"Deleted entry '{entry_id}': {'OK' if ok else 'FAILED'}")
+    if rule:
+        count = store.delete_by_rule(rule)
+        typer.echo(f"Deleted {count} entries for rule='{rule}'")
+
+
+@app.command()
+def rag_add(
+    finding_file: str = typer.Option(
+        ..., "--file", "-f", help="Path to JSON file with a finding to add"
+    ),
+) -> None:
+    """Manually add a finding to the RAG knowledge base from a JSON file."""
+    import hashlib
+
+    settings = _load_settings()
+    _setup_logging(settings.log_level)
+    store = _build_vector_store(settings)
+
+    with open(finding_file, "r", encoding="utf-8") as f:
+        finding = json.load(f)
+
+    from core.models import KnowledgeEntry
+    from knowledge.enrichment import KnowledgeEnricher
+
+    finding_id = finding.get("id", 0)
+    cves = [v.get("vulnerability_id", "") for v in finding.get("vulnerability_ids", [])]
+    cve = cves[0] if cves else None
+    component = finding.get("component_name") or ""
+    component_version = finding.get("component_version") or ""
+    rule = finding.get("title") or ""
+
+    notes = finding.get("notes") or []
+    reason = "\n---\n".join(n.get("entry", "") for n in notes if n.get("entry"))
+    if not reason:
+        reason = finding.get("description") or finding.get("title") or ""
+
+    document = KnowledgeEnricher._build_document(reason[:500], cve, component, component_version)
+    doc_hash = hashlib.sha256(document.encode()).hexdigest()[:16]
+
+    entry = KnowledgeEntry(
+        id=f"fp_{finding_id}_{doc_hash}",
+        document=document,
+        cve=cve,
+        component_name=component or None,
+        component_version=component_version or None,
+        rule=rule or None,
+        source_finding_id=finding_id,
+        product_id=finding.get("product") or finding.get("product_id"),
+        test_id=finding.get("test"),
+        file_path=finding.get("file_path") or finding.get("sast_source_file_path"),
+        test_name=finding.get("test_name"),
+        date=(finding.get("mitigated") or "")[:10] or None,
+        hash=doc_hash,
+    )
+
+    if store.entry_exists(entry.id):
+        typer.echo(f"Entry '{entry.id}' already exists, skipping")
+        raise typer.Exit(0)
+
+    ok = store.add_entry(entry)
+    typer.echo(f"Added entry '{entry.id}': {'OK' if ok else 'FAILED'}")
 
 
 # ------------------------------------------------------------------
