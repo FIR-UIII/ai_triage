@@ -1,13 +1,11 @@
 """
-Multi-stage triage engine.
-
-Pipeline stages (in order of precedence):
-  1. Deterministic rules  – fast, zero external calls, highest confidence
-  2. Exact meta match     – CVE + component exact lookup in vector store
-  3. Semantic similarity  – vector similarity search in knowledge base
-  4. LLM analysis         – LLM with RAG context injection
-  5. Reachability check   – optional SAST reachability analysis
-  6. Manual review        – fallback when no decision can be made
+Ядро триажного движка, который обрабатывает находки из DefectDojo и принимает решения о том, 
+являются ли они ложными срабатываниями или требуют ручной проверки. 
+Движок использует несколько этапов проверки, включая детерминированные правила, поиск по метаданным, 
+семантический поиск в базе знаний и анализ с помощью LLM. 
+Он также поддерживает опциональный этап анализа достижимости для SAST находок. 
+Все компоненты (хранилище векторов, LLM клиент, анализ достижимости) внедряются 
+через конструктор для гибкости и тестируемости.
 """
 
 import logging
@@ -25,15 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 class TriageEngine:
-    """Orchestrates the triage pipeline using dependency injection.
-
-    Args:
-        vector_store:           VectorStore instance (ChromaDB).
-        llm_client:             LLMClient instance (local or API).
-        dd_base_url:            DefectDojo base URL for building finding links.
-        reachability_analyzer:  Optional SAST reachability tool.
-        source_root:            Optional local source root for reachability analysis.
-        code_context_provider:  Optional source code reader for LLM enrichment.
+    """
+    Класс TriageEngine обрабатывает находки из DefectDojo и принимает решения о том, являются ли 
+    они ложными срабатываниями или требуют ручной проверки.
     """
 
     def __init__(
@@ -51,10 +43,6 @@ class TriageEngine:
         self.reachability = reachability_analyzer
         self.source_root = source_root
         self.code_context = code_context_provider
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def triage(self, finding: Dict) -> TriageResult:
         """
@@ -98,7 +86,12 @@ class TriageEngine:
         )
 
     def run_batch(self, findings: List[Dict]) -> List[TriageResult]:
-        """Triage a list of findings, collecting errors without raising."""
+        """
+        Функция для обработки партии находок. Итерируется по списку находок, вызывает triage 
+        для каждой и собирает результаты.
+        Возвращает список TriageResult, который можно использовать для обновления 
+        статусов в DefectDojo или для отчетности.
+        """
         results: List[TriageResult] = []
         total = len(findings)
         for i, finding in enumerate(findings, 1):
@@ -120,11 +113,10 @@ class TriageEngine:
             logger.debug("Batch progress: %d/%d", i, total)
         return results
 
-    # ------------------------------------------------------------------
-    # Pipeline stages
-    # ------------------------------------------------------------------
-
     def _stage_rules(self, finding: Dict) -> Optional[TriageResult]:
+        """
+        Шаг 1. Применение детерминированных правил к сработке.
+        """
         matched, explanation, confidence = analyze_finding(finding)
         if not matched:
             return None
@@ -144,6 +136,14 @@ class TriageEngine:
         cve: Optional[str],
         component: Optional[str],
     ) -> Optional[TriageResult]:
+        """
+        Шаг 2. Точный поиск по метаданным (CVE + компонент) в базе знаний.
+         - Если найдено точное совпадение, срабатывает триаж с высоким уровнем доверия.
+         - Если совпадений нет, возвращает None для перехода к следующему этапу.
+         - Этот этап позволяет быстро отсеивать известные ложные срабатывания на основе их идентификаторов и компонентов.
+         - Важно, что для этого этапа требуется, чтобы база знаний была достаточно наполнена и актуальна, иначе он будет часто пропускать возможности для быстрого FP триажа.
+         - Поэтому важно регулярно обогащать базу знаний новыми ложными срабатываниями и их метаданными из DefectDojo.
+        """
         if not cve and not component:
             return None
         matches = self.store.search_by_meta(cve=cve, component_name=component)
@@ -166,6 +166,14 @@ class TriageEngine:
     def _stage_similarity(
         self, finding: Dict, cve: Optional[str]
     ) -> Optional[TriageResult]:
+        """
+        Шаг 3. Семантический поиск по базе знаний для нахождения похожих записей.
+         - Использует векторные эмбеддинги для поиска записей, которые семантически похожи на текущую сработку, 
+           даже если у них нет точного совпадения по CVE или компоненту.
+         - Если найдено похожее совпадение с достаточным уровнем сходства, срабатывает триаж с умеренным уровнем доверия.
+         - Этот этап позволяет отсеивать сработки, которые могут быть ложными срабатываниями, 
+           на основе их семантической схожести с известными ложными срабатываниями.
+        """
         search_text = cve or finding.get("title", "")
         if not search_text:
             return None
@@ -189,6 +197,11 @@ class TriageEngine:
         )
 
     def _stage_llm(self, finding: Dict) -> Optional[TriageResult]:
+        """
+        Шаг 4. Анализ с помощью LLM с RAG-контекстом.
+         - Формирует системный промпт, который включает правила и шаблоны для модели, а также RAG-контекст из базы знаний.
+         - Вызывает LLM для получения вердикта о том является ли сработка ложным срабатыванием или требует ручной проверки.
+        """
         # Build RAG context: try rule-specific first, then text similarity
         rule_key = finding.get("title", "")
         rag_context = self.store.search_by_rule(rule_key, n_results=3)
@@ -215,7 +228,7 @@ class TriageEngine:
             confidence,
         )
 
-        # Optional Stage 5 – reachability for SAST findings
+        # Шаг 5. Анализ достижимости для SAST находок (опционально) пока не тестировался
         reach_note = ""
         if self.reachability and finding.get("sast_source_file_path"):
             reach = self.reachability.analyze(finding, self.source_root)
@@ -243,16 +256,21 @@ class TriageEngine:
         )
 
     # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _primary_cve(finding: Dict) -> Optional[str]:
+        """
+        Функция для извлечения основного CVE из сработки, если он есть.
+        Нужна для этапов, которые используют CVE для поиска в базе знаний.
+        """
         ids = finding.get("vulnerability_ids") or []
         return ids[0].get("vulnerability_id") if ids else None
 
     def _get_code_context(self, finding: Dict) -> Optional[str]:
-        """Build a code context string for the LLM, or None if unavailable."""
+        """
+        Создает текстовый блок с контекстом исходного кода вокруг уязвимого участка, если доступно.
+        Этот контекст может быть включен в RAG для LLM
+        """
         if not self.code_context:
             return None
         ctx = self.code_context.get_context(finding)
@@ -265,6 +283,10 @@ class TriageEngine:
 
     @staticmethod
     def _extract_ids(matches: List[Dict]) -> List[int]:
+        """
+        Возвращает список идентификаторов находок из метаданных совпадений, которые можно использовать 
+        для ссылок в комментариях.
+        """
         ids = []
         for m in matches:
             fid = m.get("metadata", {}).get("source_finding_id")
@@ -278,6 +300,10 @@ class TriageEngine:
     def _build_similar_comment(
         self, matches: List[Dict], include_score: bool = False
     ) -> str:
+        """
+        Возвращает текст комментария, который перечисляет похожие находки из базы знаний, 
+        которые были найдены на этапах 2 или 3.
+        """
         lines = ["[Auto-triage] Similar false-positive findings:"]
         for m in matches[:3]:
             meta = m.get("metadata", {})

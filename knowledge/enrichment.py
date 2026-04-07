@@ -1,11 +1,17 @@
 """
-Knowledge base enrichment pipeline.
+Модуль enrichment.py содержит реализацию класса KnowledgeEnricher, который отвечает за 
+обогащение базы знаний на основе данных о ложных срабатываниях (False Positives) из DefectDojo.
 
-Flow:
-  1. Fetch closed False Positive findings from DefectDojo (by product ID).
-  2. Extract the FP reason from analyst notes (pattern-based → LLM fallback).
-  3. Check for semantic duplicates in the vector store.
-  4. Add new, non-duplicate entries to the knowledge base.
+Основные компоненты:
+- FPReasonExtractor: Класс для извлечения и нормализации причины ложного срабатывания из заметок к сработке.
+- KnowledgeEnricher: Оркестратор всего процесса обогащения. Он извлекает ложные срабатывания для данного теста,
+    обрабатывает каждую сработку, извлекая причину FP, проверяя на дубликаты и добавляя уникальные записи в векторное хранилище.
+Ключевые функции:
+- enrich_from_product(test_id, dry_run): Главная функция для запуска процесса обогащения для всех ложных срабатываний, 
+связанных с данным test_id. Возвращает статистику обогащения.
+- _process_one(finding, stats, dry_run): Обрабатывает одну сработку: извлекает причину FP, проверяет на дубликаты и добавляет в хранилище.
+- _build_document(reason, cve, component, component_version): 
+Статический метод для композиции нормализованного текстового документа из его составных частей (причина, CVE, компонент).
 """
 
 import hashlib
@@ -43,16 +49,10 @@ _COMPILED_SKIP_PATTERNS = [
 
 
 class FPReasonExtractor:
-    """Extracts and normalises the false-positive reason from finding notes.
-
-    Strategy:
-      1. Check for bot/auto-close patterns — if found, return None (skip).
-      2. Use truncated raw note as the reason.
-      (LLM extraction temporarily disabled.)
-    """
 
     def __init__(self, llm_client=None):
-        # llm_client is optional – enrichment can run without LLM
+        # llm_client не обязателен, так как LLM extraction временно отключен. 
+        # Если llm_client не передан, будет использоваться простая логика извлечения из заметок.
         self.llm = llm_client
 
     # цель функции распарсить из finding ключ entry в котором содержится описание причины FP
@@ -64,18 +64,12 @@ class FPReasonExtractor:
 
         combined = "\n---\n".join(entries)
 
-        # Skip bot/auto-close comments — no analyst reasoning to extract
+        # Пропустить комментарии бота/автозакрытия — нет аналитического обоснования для извлечения
         if self._is_bot_comment(combined):
             _DEBUG("  extract: bot/auto-close comment detected, skipping")
             return None
 
-        # TODO: LLM extraction temporarily disabled
-        # if self.llm:
-        #     reason = self._extract_with_llm(finding, combined)
-        #     if reason:
-        #         return reason
-
-        # Use truncated note as the reason
+        # Использовать усеченную заметку в качестве причины
         return combined[:500].strip() or None
 
     # ------------------------------------------------------------------
@@ -122,14 +116,6 @@ class FPReasonExtractor:
 
 
 class KnowledgeEnricher:
-    """Orchestrates the enrichment pipeline.
-
-    Args:
-        dd_client:    DefectDojoClient instance.
-        vector_store: VectorStore instance.
-        llm_client:   Optional LLMClient – used for FP reason extraction.
-        dedup_threshold: Cosine similarity threshold for duplicate detection.
-    """
 
     def __init__(
         self,
@@ -144,9 +130,8 @@ class KnowledgeEnricher:
         self.dedup_threshold = dedup_threshold
 
     def enrich_from_product(self, test_id: int, dry_run: bool = False) -> Dict:
-        """Run the full enrichment pipeline for a DefectDojo product.
-
-        Returns a dict with enrichment statistics.
+        """
+        Основная функция для обогащения базы знаний на основе ложных срабатываний из DefectDojo для данного test_id.
         """
         stats = {
             "fetched": 0,
@@ -184,6 +169,9 @@ class KnowledgeEnricher:
     # ------------------------------------------------------------------
 
     def _process_one(self, finding: Dict, stats: Dict, dry_run: bool) -> None:
+        """
+        Обрабатывает одно ложное срабатывание, извлекая причину и добавляя запись в базу знаний.
+        """
         finding_id = finding.get("id")
 
         reason = self.extractor.extract(finding)
@@ -205,7 +193,7 @@ class KnowledgeEnricher:
         document = self._build_document(reason, cve, component, component_version)
         doc_hash = hashlib.sha256(document.encode()).hexdigest()[:16]
 
-        # Deduplication: check semantic similarity, scoped to same rule
+        # Проверить на дубликаты — если найдено похожее, пропустить добавление
         _DEBUG("  _process_one(%s): checking for duplicates (rule=%s) ...", finding_id, rule)
         duplicate = self.store.find_duplicate(
             document, threshold=self.dedup_threshold, rule=rule or None,
@@ -221,6 +209,8 @@ class KnowledgeEnricher:
             stats["skipped_duplicate"] += 1
             return
 
+        # Если дубликатов нет, создать запись и добавить в базу знаний использует класс KnowledgeEntry, 
+        # который представляет одну запись в базе знаний. 
         entry = KnowledgeEntry(
             id=f"fp_{finding_id}_{doc_hash}",
             document=document,
@@ -252,7 +242,10 @@ class KnowledgeEnricher:
         component: str,
         component_version: str,
     ) -> str:
-        """Compose a normalised knowledge document from its constituent parts."""
+        """
+        Функция для создания нормализованного текстового документа из его составных частей (причина, CVE, компонент).
+        Документ будет содержать основную причину FP, а также упоминание CVE
+        """
         parts = [reason.strip()]
         if cve:
             parts.append(f"CVE: {cve}")

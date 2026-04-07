@@ -1,7 +1,15 @@
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+"""
+Класс для определения конфигурации приложения. Использует pydantic для валидации и загрузки из .env 
+или переменных окружения.
 
+Порядок приоритета значений (от высшего к низшему):
+1. Реальные переменные окружения (export DD_API_URL=... или set в системе)
+2. Значения из файла .env (через model_config)
+3. Дефолты из Field(default=...) в классе Settings
+"""
 class Settings(BaseSettings):
     # DefectDojo
     dd_api_url: str = Field(..., validation_alias="DD_API_URL")
@@ -30,6 +38,7 @@ class Settings(BaseSettings):
 
     # Source code context
     code_context_max_chars: int = Field(0, validation_alias="CODE_CONTEXT_MAX_CHARS")
+    code_context_lines: int = Field(50, validation_alias="CODE_CONTEXT_LINES")
 
     # App
     cache_dir: str = Field("./cache", validation_alias="CACHE_DIR")

@@ -1,20 +1,20 @@
 """
-LLM-based finding analysis with RAG context injection.
-
-Design goals:
-  - Minimal token usage: only relevant finding fields are sent.
-  - Hallucination reduction: the system prompt instructs the model to rely
-    only on the provided context and to express uncertainty explicitly.
-  - Structured output: expects JSON with verdict / confidence / explanation.
+Модуль LLMAnalyzer оборачивает LLMClient и формирует системные и пользовательские промпты для анализа сработок. 
+Он принимает нормализованную сработку, релевантный контекст из базы знаний и, при наличии, фрагмент исходного кода. 
+Затем он вызывает LLM для получения вердикта о том, является ли сработка ложноположительной или требует ручной проверки, 
+вместе с объяснением и уровнем уверенности. Ответ от LLM ожидается в виде строго структурированного JSON, 
+который затем парсится и возвращается вызывающему коду.
 """
 
 import json
 import logging
+import re
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Only forward these fields to the LLM to avoid leaking tokens on irrelevant data
+# Список полей сработки, которые мы передаем в LLM для анализа. 
+# Это помогает стандартизировать входные данные и избежать передачи избыточной информации.
 _LLM_FINDING_FIELDS = [
     "id",
     "title",
@@ -32,6 +32,7 @@ _LLM_FINDING_FIELDS = [
     "test_name",
 ]
 
+# Системный промпт для LLM, который задает контекст и правила для анализа сработки.
 _SYSTEM_PROMPT = """\
 You are an expert application security engineer performing automated triage.
 Determine if the security finding below is a false-positive or requires manual review.
@@ -54,9 +55,12 @@ Respond with valid JSON only:
   "explanation": "<string>"
 }}"""
 
-
+# Класс LLMAnalyzer, который использует LLMClient для анализа сработок.
+# Он формирует системный и пользовательский промпты, вызывает LLM и обрабатывает ответ.
 class LLMAnalyzer:
-    """Wraps an LLMClient and formats the prompts for finding analysis."""
+    """
+    Класс LLMAnalyzer оборачивает LLMClient и формирует системные и пользовательские промпты для анализа сработок.
+    """
 
     def __init__(self, llm_client):
         self.llm = llm_client
@@ -93,7 +97,7 @@ class LLMAnalyzer:
 
         try:
             raw = self.llm.chat(system_prompt, user_prompt)
-            result = json.loads(raw)
+            result = json.loads(self._strip_markdown_fences(raw))
         except json.JSONDecodeError as e:
             logger.error("LLM returned non-JSON response: %s | raw=%s", e, raw[:200])
             return None
@@ -110,6 +114,20 @@ class LLMAnalyzer:
         return result
 
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _strip_markdown_fences(text: str) -> str:
+        """
+        Нормализация ответов от LLM, т.к. разные бэкенды могут по-разному обрабатывать форматирование. 
+        Удаляем markdown-ограждения, если они есть
+        """
+        if text is None:
+            return ""
+        stripped = text.strip()
+        match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", stripped, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return stripped
 
     @staticmethod
     def _normalize_finding(finding: Dict) -> Dict:

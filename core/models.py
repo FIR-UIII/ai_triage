@@ -1,3 +1,9 @@
+"""
+Классы данных и модели для представления сработок, результатов триажа и знаний о уязвимостях. 
+Эти модели используются для обмена данными между различными компонентами системы, такими как анализаторы, 
+база знаний и интеграция с DefectDojo.
+"""
+
 from __future__ import annotations
 
 from enum import Enum
@@ -15,10 +21,17 @@ class TriageAction(str, Enum):
 
 
 class VulnerabilityId(BaseModel):
+    """Класс VulnerabilityId представляет идентификатор уязвимости, связанный с сработкой
+    (например, CVE-2021-1234). Используется в классе Finding для хранения списка связанных уязвимостей.
+    """
     vulnerability_id: str
 
 
 class FindingNote(BaseModel):
+    """
+    Класс FindingNote представляет структуру комментария findingв DefectDojo. 
+    Используется в приложении в файле models.py для нормализации данных сработки и удобного доступа к комментариям.
+    """
     id: int
     entry: str
     date: str = ""
@@ -26,6 +39,12 @@ class FindingNote(BaseModel):
 
 
 class Finding(BaseModel):
+    """
+    Класс Finding представляет собой сработку безопасности, извлеченную из DefectDojo.
+    Для номализации данных сработки используется pydantic. Этот класс включает в себя все релевантные поля,
+    которые могут понадобиться для анализа, а также некоторые дополнительные поля для удобства доступа к данным
+    Используется в приложении в файле models.py для нормализации данных сработки и удобного доступа к полям сработки.
+    """
     id: int
     title: str
     severity: str
@@ -54,6 +73,9 @@ class Finding(BaseModel):
 
 
 class TriageResult(BaseModel):
+    """
+    Класс TriageResult представляет результат триажа для конкретной сработки.
+    """
     finding_id: int
     action: TriageAction
     # "false-positive" | "needs-review"
@@ -68,7 +90,9 @@ class TriageResult(BaseModel):
 
 
 class KnowledgeEntry(BaseModel):
-    """A single entry stored in the vector knowledge base."""
+    """
+    Класс KnowledgeEntry представляет одну запись, хранящуюся в векторной базе знаний
+    """
 
     id: str
     # Human-readable FP explanation used as the embedding document
@@ -87,7 +111,7 @@ class KnowledgeEntry(BaseModel):
     hash: Optional[str] = None
 
     def to_chroma_metadata(self) -> Dict[str, Any]:
-        """Return only scalar fields suitable for ChromaDB metadata."""
+        """Возвращает только скалярные поля, подходящие для метаданных ChromaDB."""
         return {
             k: v
             for k, v in self.model_dump().items()

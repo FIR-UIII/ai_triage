@@ -1,12 +1,6 @@
 """
-Deterministic triage rules.
-
-Rules are evaluated before any RAG or LLM call and offer the highest
-confidence verdicts at zero latency cost.
-
-To add a new rule: create a function matching the signature
-    (finding: Dict) -> bool
-and add a Rule entry to the RULES list.
+Модуль для определения и применения детерминированных правил для автоматической фильтрации 
+ложноположительных результатов в DefectDojo.
 """
 
 import re
@@ -23,19 +17,18 @@ class Rule:
     confidence: float = 0.9
 
 
-# ------------------------------------------------------------------
-# Rule implementations
-# ------------------------------------------------------------------
-
+# Блок правил для автоматической фильтрации сработок.
 
 def _severity_out_of_scope(finding: Dict) -> bool:
-    """Skip Info/Informational/Low severities per current policy."""
+    """
+    Фильтр по низкой критичности: сработки с severity Info/Low 
+    """
     severity = (finding.get("severity") or "").lower()
     return severity in ("info", "informational", "low")
 
 
 def _is_test_file(finding: Dict) -> bool:
-    """Finding is inside a test/spec directory – not shipped to production."""
+    """Фильтр по тестовым файлам: сработки внутри директорий test/spec не попадают в продакшн."""
     path = (
         finding.get("file_path")
         or finding.get("sast_source_file_path")
@@ -51,13 +44,13 @@ def _is_test_file(finding: Dict) -> bool:
 
 
 def _is_documentation_file(finding: Dict) -> bool:
-    """Finding is in a documentation-only file."""
+    """Фильтр по документационным файлам: сработки внутри файлов документации не попадают в продакшн."""
     path = finding.get("file_path") or finding.get("sast_source_file_path") or ""
     return bool(re.search(r"\.(md|rst|txt|adoc|asciidoc)$", path, re.IGNORECASE))
 
 
 def _is_vendor_backport(finding: Dict) -> bool:
-    """Analyst notes explicitly state the vendor has backported the fix."""
+    """Фильтр по исправлениям от вендора: аналитические заметки явно указывают, что вендор уже внес исправление."""
     notes = finding.get("notes") or []
     keywords = (
         "патч от вендора",
@@ -76,42 +69,42 @@ def _is_vendor_backport(finding: Dict) -> bool:
 
 
 def _is_already_mitigated(finding: Dict) -> bool:
-    """Finding is already marked mitigated/closed in DefectDojo."""
+    """Фильтр по уже смягченным/закрытым сработкам: сработки, уже помеченные как mitigated/closed в DefectDojo."""
     return bool(finding.get("is_mitigated")) and not finding.get("active", True)
 
 
 # ------------------------------------------------------------------
-# Rule registry
+# Регистрация правил и функция анализа сработок. Чтобы добавить новое правило, просто добавь новый объект Rule в список RULES с соответствующей функцией проверки.
 # ------------------------------------------------------------------
 
 RULES: List[Rule] = [
     Rule(
         name="severity_out_of_scope",
-        description="Severity is Info/Low – out of scope for current analysis cycle",
+        description="Фильтр по низкой критичности: сработки с severity Info/Low",
         check=_severity_out_of_scope,
         confidence=0.95,
     ),
     Rule(
         name="test_file",
-        description="Finding is located in a test/spec directory (not in production build)",
+        description="Фильтр по тестовым файлам: сработки внутри директорий test/spec не попадают в продакшн.",
         check=_is_test_file,
         confidence=0.88,
     ),
     Rule(
         name="documentation_file",
-        description="Finding is in a documentation-only file",
+        description="Фильтр по документационным файлам: сработки внутри файлов документации не попадают в продакшн.",
         check=_is_documentation_file,
         confidence=0.90,
     ),
     Rule(
         name="vendor_backport",
-        description="Analyst notes confirm the vendor has backported the fix",
+        description="Фильтр по исправлениям от вендора: аналитические заметки явно указывают, что вендор уже внес исправление.",
         check=_is_vendor_backport,
         confidence=0.87,
     ),
     Rule(
         name="already_mitigated",
-        description="Finding is already closed/mitigated in DefectDojo",
+        description="Фильтр по уже смягченным/закрытым сработкам: сработки, уже помеченные как mitigated/closed в DefectDojo.",
         check=_is_already_mitigated,
         confidence=0.95,
     ),
@@ -119,11 +112,10 @@ RULES: List[Rule] = [
 
 
 def analyze_finding(finding: Dict) -> Tuple[bool, str, float]:
-    """Apply all deterministic rules in order.
-
+    """
+    Применяет все правила к сработке и возвращает первое совпадение.
     Returns:
-        (matched, explanation, confidence)
-        matched=False means no rule fired.
+        Tuple[is_false_positive, explanation, confidence]
     """
     for rule in RULES:
         if rule.check(finding):

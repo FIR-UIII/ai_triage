@@ -1,24 +1,11 @@
 """
-Reachability analysis module.
-
-Provides an abstract interface and concrete implementations for determining
-whether a vulnerable code path is actually reachable from an attacker-controlled
-source (user input, network, file system, etc.).
-
-Concrete implementations:
-  - SemgrepReachabilityAnalyzer  – uses Semgrep dataflow rules
-  - CodeQLReachabilityAnalyzer   – uses a pre-built CodeQL database
-  - CompositeReachabilityAnalyzer – combines multiple analyzers by confidence vote
-
-Integration into the triage pipeline:
-  - Only applicable to SAST findings (those with sast_source_file_path set).
-  - Results downgrade confidence when the path is proven unreachable.
-  - CI/CD: build the CodeQL DB in the pipeline; pass db_path via env var.
-
-DFD/CFG notes:
-  The implementations below use tool-generated CFGs/DFDs.  For a language-agnostic
-  lightweight alternative, see the NetworkxCFGAnalyzer stub which consumes a
-  pre-computed CFG exported as a JSON node-edge list.
+Класс для анализа достижимости (reachability) уязвимостей, используя инструменты статического анализа кода, 
+такие как Semgrep и CodeQL.
+Реализованы следующие классы:
+- ReachabilityResult: структура для хранения результатов анализа достижимости.
+- BaseReachabilityAnalyzer: абстрактный базовый класс для всех анализаторов достижимости.
+- SemgrepReachabilityAnalyzer: реализация на основе Semgrep для языков с поддержкой dataflow.
+- CodeQLReachabilityAnalyzer: реализация на основе CodeQL для языков с поддержкой dataflow.
 """
 
 import json
@@ -32,12 +19,7 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-
-# ------------------------------------------------------------------
-# Data model
-# ------------------------------------------------------------------
-
-
+# Модель данных для результатов анализа достижимости
 @dataclass
 class ReachabilityResult:
     is_reachable: bool
@@ -45,11 +27,6 @@ class ReachabilityResult:
     explanation: str
     source: str  # Tool name / identifier
     flow_paths: List[str] = field(default_factory=list)
-
-
-# ------------------------------------------------------------------
-# Abstract base
-# ------------------------------------------------------------------
 
 
 class BaseReachabilityAnalyzer(ABC):
@@ -68,17 +45,16 @@ class BaseReachabilityAnalyzer(ABC):
 
 
 # ------------------------------------------------------------------
-# Semgrep implementation
+# Semgrep
 # ------------------------------------------------------------------
 
 
 class SemgrepReachabilityAnalyzer(BaseReachabilityAnalyzer):
-    """Uses Semgrep dataflow/taint rules to detect reachable sinks.
+    """Класс SemgrepReachabilityAnalyzer использует правила dataflow/taint Semgrep для обнаружения достижимых sink'ов.
 
-    Pipeline integration:
+    Интеграция в пайплайн:
         semgrep --config=auto --dataflow-traces --json <target>
 
-    Recommended for: web/API backends (Python, Java, JS, Go).
     """
 
     def __init__(self, semgrep_bin: str = "semgrep", config: str = "auto"):
@@ -145,21 +121,21 @@ class SemgrepReachabilityAnalyzer(BaseReachabilityAnalyzer):
 
 
 # ------------------------------------------------------------------
-# CodeQL implementation
+# CodeQL
 # ------------------------------------------------------------------
 
 
 class CodeQLReachabilityAnalyzer(BaseReachabilityAnalyzer):
-    """Uses a pre-built CodeQL database to check data-flow reachability.
+    """Класс CodeQLReachabilityAnalyzer использует предсобранную базу данных CodeQL для проверки достижимости данных.
 
-    CI/CD integration:
-        # Build phase (once per repository / on source change):
+    CI/CD интеграция:
+        # Этап сборки (один раз на репозиторий / при изменении исходного кода):
         codeql database create codeql-db --language=python --source-root=.
 
-        # Analysis phase (per finding):
-        Pass db_path=os.environ["CODEQL_DB_PATH"] to the constructor.
+        # Этап анализа (для каждой сработки):
+        Передайте db_path=os.environ["CODEQL_DB_PATH"] в конструктор.
 
-    Supports: Java, Python, JavaScript, C/C++, C#, Go, Ruby.
+    Поддерживаемые языки: Java, Python, JavaScript, C/C++, C#, Go, Ruby.
     """
 
     def __init__(self, codeql_bin: str = "codeql", db_path: Optional[str] = None):
@@ -233,7 +209,7 @@ class CodeQLReachabilityAnalyzer(BaseReachabilityAnalyzer):
 
     @staticmethod
     def _build_query(sink: str) -> str:
-        """Generate a minimal CodeQL taint-tracking query for the given sink."""
+        """Генерирует минимальный запрос CodeQL для отслеживания taint для данного sink."""
         return f"""\
 /**
  * Auto-generated reachability query for sink: {sink}
@@ -247,43 +223,3 @@ where TaintTracking::localTaint(source, sinkNode)
 select source, sinkNode, "Data flows to {sink}"
 """
 
-
-# ------------------------------------------------------------------
-# Composite (ensemble) analyzer
-# ------------------------------------------------------------------
-
-
-class CompositeReachabilityAnalyzer(BaseReachabilityAnalyzer):
-    """Runs all available analyzers, combines results by confidence-weighted vote."""
-
-    def __init__(self, analyzers: List[BaseReachabilityAnalyzer]):
-        self.analyzers = analyzers
-
-    def is_available(self) -> bool:
-        return any(a.is_available() for a in self.analyzers)
-
-    def analyze(
-        self, finding: Dict, source_root: Optional[str] = None
-    ) -> ReachabilityResult:
-        available = [a for a in self.analyzers if a.is_available()]
-        if not available:
-            return self._unavailable("No reachability analyzers available")
-
-        results = [a.analyze(finding, source_root) for a in available]
-
-        reachable_conf = sum(r.confidence for r in results if r.is_reachable)
-        not_reachable_conf = sum(r.confidence for r in results if not r.is_reachable)
-
-        if reachable_conf >= not_reachable_conf:
-            best = max((r for r in results if r.is_reachable), key=lambda r: r.confidence)
-        else:
-            best = max((r for r in results if not r.is_reachable), key=lambda r: r.confidence)
-
-        tools = ", ".join(r.source for r in results)
-        return ReachabilityResult(
-            is_reachable=best.is_reachable,
-            confidence=best.confidence,
-            explanation=best.explanation,
-            source=f"composite({tools})",
-            flow_paths=best.flow_paths,
-        )

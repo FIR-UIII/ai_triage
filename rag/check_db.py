@@ -1,4 +1,24 @@
 #!/usr/bin/env python3
+"""
+Скрипт для проверки содержимого базы данных Chroma, используемой в RAG. 
+Позволяет убедиться, что данные были успешно сохранены и доступны для поиска.
+Проверяет наличие коллекции, количество записей и выводит некоторые метаданные для верификации.
+
+Пример использования:
+    python check_db.py
+Ожидаемый результат:
+    Коллекция: example_collection
+    Количество объектов: 10
+    Finding IDs (10):
+      - 101
+      - 102
+      ...
+    Rules (3):
+        - severity_out_of_scope
+        - _is_test_file
+        - _is_documentation_file
+"""
+
 
 from chromadb import PersistentClient
 import os

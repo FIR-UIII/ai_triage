@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+
+"""
+Этот скрипт предназначен для однократного запуска при первоначальной настройке системы.
+"""
+
 import os
 from chromadb import PersistentClient
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction

@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """
-AI Triage – automated triage of security findings from DefectDojo
-using a RAG + LLM pipeline.
+AI Triage – автоматически производит триаж уязвимостей с использованием RAG + LLM
 
-Commands:
-  triage   – run triage on findings from a DefectDojo test
+Команды:
+  triage   – выполнить триаж уязвимостей из теста DefectDojo
   enrich   – populate the knowledge base from closed false-positives
 
-Usage:
+Пример использования:
+  По умолчанию результаты сохраняются в папку output/ в виде JSONL файла
   python main.py triage --test-id 15540
+  
+  C добавлением комментариев в DefectDojo:
   python main.py triage --test-id 15540 --post-comments
 """
 
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -23,8 +26,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Отключаем OpenAI SDK телеметрию (PostHog) — иначе будут запросы на posthog.com
+os.environ.setdefault("OPENAI_DISABLE_SEND_TELEMETRY", "1")
+
 app = typer.Typer(
-    help="AI Triage: automated security findings triage using RAG + LLM",
+    help="AI Triage: автоматически производит триаж уязвимостей с использованием RAG + LLM",
     no_args_is_help=True,
 )
 
@@ -102,7 +108,11 @@ def _build_engine(settings, vector_store=None, llm_client=None, repo_path=None):
     if repo_path:
         from analysis.code_context import CodeContextProvider
         max_chars = settings.code_context_max_chars or (settings.llm_n_ctx * 3)
-        code_context = CodeContextProvider(repo_root=repo_path, max_chars=max_chars)
+        code_context = CodeContextProvider(
+            repo_root=repo_path,
+            max_chars=max_chars,
+            max_lines=settings.code_context_lines,
+        )
 
     return TriageEngine(
         vector_store=store,
@@ -201,7 +211,9 @@ def enrich(
         False, "--dry-run", help="Preview changes without writing to knowledge base"
     ),
 ) -> None:
-    """Populate the knowledge base from closed False Positive findings."""
+    """
+    Команда для обогащения базы знаний на основе закрытых false-positive findings.
+    """
     import sys
 
     def _DEBUG(msg: str) -> None:
@@ -247,7 +259,10 @@ def fetch(
         None, "--output", "-o", help="Output JSON file (default: cache dir)"
     ),
 ) -> None:
-    """Fetch findings from DefectDojo and save to a local cache file."""
+    """
+    Функция для скачивания findings по test id и сохранения их в JSON файл. 
+    Если указать --output, то сохраняет в него, иначе сохраняет в папку кеша.
+    """
     settings = _load_settings()
     _setup_logging(settings.log_level)
     logger = logging.getLogger(__name__)
@@ -266,50 +281,58 @@ def fetch(
 
 @app.command()
 def rag_delete(
-    finding_id: Optional[int] = typer.Option(
-        None, "--finding-id", "-f", help="Delete entries by source finding ID"
+    delete_finding: Optional[int] = typer.Option(
+        None, "--delete-finding", "-f", help="Delete entries by source finding ID"
     ),
-    entry_id: Optional[str] = typer.Option(
-        None, "--entry-id", "-e", help="Delete a single entry by its RAG document ID"
+    delete_entry: Optional[str] = typer.Option(
+        None, "--delete-entry", "-e", help="Delete a single entry by its RAG document ID"
     ),
-    rule: Optional[str] = typer.Option(
-        None, "--rule", "-r", help="Delete all entries matching a SAST rule"
+    delete_rule: Optional[str] = typer.Option(
+        None, "--delete-rule", "-r", help="Delete all entries matching a SAST rule"
     ),
 ) -> None:
-    """Delete specific entries from the RAG knowledge base."""
-    if not finding_id and not entry_id and not rule:
-        typer.echo("Specify at least one of: --finding-id, --entry-id, --rule")
+    """
+    Функция для удаления данных из RAG базы знаний. Можно удалить по ID finding, по ID документа или по правилу SAST.
+    Пример использования → python main.py rag-delete --delete-finding 12345
+    Пример использования → python main.py rag-delete --delete-entry fp_12345_abcdef
+    Пример использования → python main.py rag-delete --delete-rule rule_name
+    """
+    if not delete_finding and not delete_entry and not delete_rule:
+        typer.echo("Specify at least one of: --delete-finding, --delete-entry, --delete-rule")
         raise typer.Exit(1)
 
     settings = _load_settings()
     _setup_logging(settings.log_level)
     store = _build_vector_store(settings)
 
-    if finding_id:
-        count = store.delete_by_finding_id(finding_id)
-        typer.echo(f"Deleted {count} entries for finding_id={finding_id}")
-    if entry_id:
-        ok = store.delete_by_id(entry_id)
-        typer.echo(f"Deleted entry '{entry_id}': {'OK' if ok else 'FAILED'}")
-    if rule:
-        count = store.delete_by_rule(rule)
-        typer.echo(f"Deleted {count} entries for rule='{rule}'")
+    if delete_finding:
+        count = store.delete_by_finding_id(delete_finding)
+        typer.echo(f"Deleted {count} entries for finding_id={delete_finding}")
+    if delete_entry:
+        ok = store.delete_by_id(delete_entry)
+        typer.echo(f"Deleted entry '{delete_entry}': {'OK' if ok else 'FAILED'}")
+    if delete_rule:
+        count = store.delete_by_rule(delete_rule)
+        typer.echo(f"Deleted {count} entries for rule='{delete_rule}'")
 
 
 @app.command()
 def rag_add(
-    finding_file: str = typer.Option(
-        ..., "--file", "-f", help="Path to JSON file with a finding to add"
+    add_finding: str = typer.Option(
+        ..., "--add-finding", "-f", help="Path to JSON file with a finding to add"
     ),
 ) -> None:
-    """Manually add a finding to the RAG knowledge base from a JSON file."""
+    """
+    Функция для добавления одного finding в базу знаний RAG. На вход принимает JSON файл с данными finding, формирует на его основе документ и сохраняет его в векторное хранилище.
+    Пример использования → python main.py rag-add --add-finding example_finding.json
+    """
     import hashlib
 
     settings = _load_settings()
     _setup_logging(settings.log_level)
     store = _build_vector_store(settings)
 
-    with open(finding_file, "r", encoding="utf-8") as f:
+    with open(add_finding, "r", encoding="utf-8") as f:
         finding = json.load(f)
 
     from core.models import KnowledgeEntry

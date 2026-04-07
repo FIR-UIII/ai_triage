@@ -98,6 +98,7 @@ class OpenAICompatibleClient(LLMClient):
         model: str = "default",
         api_key: str = "none",
         temperature: float = 0.2,
+        max_tokens: int = 1024,
     ):
         # Deferred import – openai is optional
         from openai import OpenAI
@@ -105,6 +106,7 @@ class OpenAICompatibleClient(LLMClient):
         self._client = OpenAI(base_url=base_url, api_key=api_key)
         self.model = model
         self.temperature = temperature
+        self.max_tokens = max_tokens
         logger.info("OpenAICompatibleClient: %s model=%s", base_url, model)
 
     def chat(self, system_prompt: str, user_prompt: str) -> str:
@@ -116,6 +118,7 @@ class OpenAICompatibleClient(LLMClient):
             ],
             response_format={"type": "json_object"},
             temperature=self.temperature,
+            max_tokens=self.max_tokens,
         )
         return response.choices[0].message.content
 

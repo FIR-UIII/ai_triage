@@ -1,3 +1,15 @@
+"""
+Модуль vector_store.py содержит реализацию класса VectorStore, который представляет собой векторную базу знаний,
+использующую ChromaDB для хранения и поиска шаблонов false-positive. Класс обеспечивает методы для:
+- Инициализации и загрузки коллекции ChromaDB с явным указанием модели эмбеддингов для предотвращения несоответствий.
+- Валидации размерности эмбеддингов при загрузке коллекции, чтобы гарантировать совместимость с текущей моделью.
+- Поиска по метаданным (CVE, имя компонента) с точным совпадением.
+- Поиска по семантической схожести с фильтрацией по порогу
+- Поиска дубликатов с более строгим порогом для предотвращения добавления похожих шаблонов.
+- Добавления новых записей в базу знаний с помощью класса KnowledgeEntry.
+- Удаления записей по finding_id, entry_id или правилу для поддержания актуальности базы знаний.
+"""
+
 import logging
 import os
 import sys
@@ -87,11 +99,13 @@ class VectorStore:
         _DEBUG("VectorStore.__init__ DONE")
 
     def _validate_embedding_dimension(self) -> None:
-        """Validate that the embedding model dimension matches existing data.
-
-        If the collection has data, generate a test embedding and compare its
-        dimension to the stored vectors. A mismatch means the DB was created
-        with a different model — raise immediately instead of hanging.
+        """
+        Функция для проверки соответствия размерности эмбеддингов текущей модели и эмбеддингов, 
+        уже хранящихся в базе данных.
+        Это важно, потому что если база данных была создана с помощью одной модели, а затем
+        используется другая модель с другой размерностью эмбеддингов, то поиск по схожести не будет работать корректно.
+        Если обнаруживается несоответствие размерности, функция выбрасывает исключение с подробным сообщением, 
+        объясняющим проблему и возможные решения (установка правильной модели или пересоздание базы данных).
         """
         count = self.collection.count()
         if count == 0:
@@ -100,7 +114,8 @@ class VectorStore:
 
         _DEBUG("Validating embedding dimension against %d stored entries ...", count)
 
-        # Get dimension of stored vectors by peeking at first entry
+        # Вот тут как раз и ловим ошибки на несовпадение размерности эмбеддингов, которые могут возникать 
+        # при загрузке коллекции, созданной другой моделью.
         try:
             peek = self.collection.peek(limit=1)
             if not peek.get("embeddings") or not peek["embeddings"]:
@@ -111,7 +126,7 @@ class VectorStore:
             _DEBUG("Could not peek at stored embeddings: %s", e)
             return
 
-        # Get dimension of current model
+        # Получить значение размерности эмбеддингов текущей модели, сгенерировав тестовый эмбеддинг
         try:
             test_embedding = self._ef(["dimension test"])
             current_dim = len(test_embedding[0])
@@ -136,8 +151,6 @@ class VectorStore:
         _DEBUG("Dimension validation OK (%d)", stored_dim)
 
     # ------------------------------------------------------------------
-    # Search methods
-    # ------------------------------------------------------------------
 
     def search_by_meta(
         self,
@@ -145,7 +158,11 @@ class VectorStore:
         component_name: Optional[str],
         n_results: int = 5,
     ) -> List[Dict]:
-        """Exact metadata filter search by CVE and/or component name."""
+        """
+        Точный поиск по метаданным CVE и/или имени компонента. Возвращает список записей, которые точно соответствуют 
+        заданным метаданным. Если оба параметра указаны, возвращаются записи, которые соответствуют обоим условиям.
+        Если ни один из параметров не указан, возвращается пустой список.
+        """
         if not cve and not component_name:
             return []
 
@@ -173,10 +190,9 @@ class VectorStore:
         threshold: float = _SIMILARITY_THRESHOLD_DEFAULT,
         rule: Optional[str] = None,
     ) -> List[Dict]:
-        """Semantic similarity search returning items above the score threshold.
-
-        If *rule* is provided, results are pre-filtered by the ``rule``
-        metadata field so only entries from the same SAST rule are compared.
+        """
+        Функция для поиска по семантической схожести. Принимает текст, который нужно сравнить, и возвращает список похожих записей из базы знаний, которые имеют similarity score выше заданного порога.
+        Если указано правило, поиск ограничивается записями с этим правилом.
         """
         if not text:
             return []
@@ -201,7 +217,9 @@ class VectorStore:
             return []
 
     def search_by_rule(self, rule: str, n_results: int = 3) -> List[str]:
-        """Return raw document strings for a given SAST rule (for LLM context)."""
+        """
+        Возвращает список документов, связанных с данным SAST правилом. Это позволяет быстро найти все шаблоны FP
+        """
         if not rule:
             return []
         try:
@@ -221,17 +239,21 @@ class VectorStore:
         threshold: float = _DEDUP_THRESHOLD_DEFAULT,
         rule: Optional[str] = None,
     ) -> Optional[Dict]:
-        """Return the most similar entry if it exceeds the dedup threshold."""
+        """
+        Поиск дубликата по тексту с заданным порогом схожести. 
+        Если указано правило, поиск ограничивается записями с этим правилом.
+        """
         _DEBUG("find_duplicate: threshold=%.2f, rule=%s", threshold, rule)
         results = self.search_by_similarity(text, n_results=1, threshold=threshold, rule=rule)
         return results[0] if results else None
 
     # ------------------------------------------------------------------
-    # Write methods
-    # ------------------------------------------------------------------
 
     def add_entry(self, entry: KnowledgeEntry) -> bool:
-        """Add a new knowledge entry to the collection."""
+        """
+        Добавляет новую запись в базу знаний. Принимает объект KnowledgeEntry, который содержит 
+        все необходимые данные и метаданные для хранения.
+        """
         try:
             _DEBUG("add_entry: id=%s", entry.id)
             self.collection.add(
@@ -246,9 +268,9 @@ class VectorStore:
             return False
 
     def delete_by_finding_id(self, finding_id: int) -> int:
-        """Delete all entries whose source_finding_id matches the given finding ID.
-
-        Returns the number of deleted entries.
+        """
+        Удаляет все записи, связанные с данным finding_id. Это полезно при закрытии/помечании сработки как FP, 
+        чтобы очистить связанные шаблоны из базы знаний.
         """
         try:
             res = self.collection.get(
@@ -266,7 +288,9 @@ class VectorStore:
             return 0
 
     def delete_by_id(self, entry_id: str) -> bool:
-        """Delete a single entry by its ChromaDB document ID."""
+        """
+        Функция для удаления одной записи по её уникальному идентификатору.
+        """
         try:
             self.collection.delete(ids=[entry_id])
             logger.info("Deleted entry: %s", entry_id)
@@ -276,9 +300,9 @@ class VectorStore:
             return False
 
     def delete_by_rule(self, rule: str) -> int:
-        """Delete all entries matching a given SAST rule.
-
-        Returns the number of deleted entries.
+        """
+        Функция для удаления всех записей, связанных с данным SAST правилом. 
+        Это полезно при обновлении/удалении правила, чтобы очистить связанные шаблоны FP из базы знаний.
         """
         try:
             res = self.collection.get(where={"rule": {"$eq": rule}})
@@ -298,11 +322,14 @@ class VectorStore:
         return bool(res.get("ids"))
 
     # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _pack_get_results(res: Dict) -> List[Dict]:
+        """
+        Функция для упаковки результатов из метода get, который возвращает списки ids, metadatas и documents.
+        Преобразует их в список словарей с ключами id, metadata и document.
+        Если нет результатов, возвращает пустой список.
+        """
         return [
             {"id": id_, "metadata": md, "document": doc}
             for id_, md, doc in zip(
@@ -314,6 +341,12 @@ class VectorStore:
 
     @staticmethod
     def _pack_query_results(res: Dict) -> List[Dict]:
+        """
+        Функция для упаковки результатов из метода query, который возвращает расстояния, метаданные и документы.
+        Преобразует косинусное расстояние в similarity score и возвращает список словарей 
+        с ключами score, metadata и document.
+        Если нет результатов, возвращает пустой список.
+        """
         if not res.get("ids") or not res["ids"][0]:
             return []
         return [

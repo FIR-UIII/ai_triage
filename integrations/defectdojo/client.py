@@ -1,3 +1,12 @@
+"""
+Модуль client.py содержит реализацию DefectDojoClient - клиента для взаимодействия с REST API DefectDojo v2.
+Клиент поддерживает:
+- Получение сработок (findings) с автоматической пагинацией
+- Получение False Positive сработок по test_id
+- Получение имени теста по test_id
+- Добавление комментариев к сработкам
+"""
+
 import logging
 import sys
 from typing import Dict, List, Optional
@@ -26,7 +35,20 @@ _HTTP_TIMEOUT = (10, 30)
 
 
 class DefectDojoClient:
-    """DefectDojo REST API v2 client with automatic pagination and retry."""
+    """
+    Класс DefectDojoClient обеспечивает взаимодействие с REST API DefectDojo v2. 
+    На вход принимает базовый URL API, API ключ и опцию проверки SSL.
+    Методы:
+        - fetch_findings(test_id): Получает все активные и не помеченные как false positive сработки для данного test_id.
+        - fetch_false_positives_by_test_id(test_id): Получает все сработки, помеченные как false positive и неактивные для данного test_id.
+        - get_test_name(test_id): Получает имя теста по test_id.
+        - add_comment(finding_id, comment): Добавляет комментарий к сработке.
+    Внутренние методы:
+        - _get(url, params): Выполняет HTTP GET запрос с обработкой ошибок и
+            поддержкой повторов с экспоненциальной задержкой.
+        - _paginate(url, params): Получает все страницы результатов для пагинированного эндпоинта.
+        - _dedup_vulnerability_ids(finding): Удаляет дубликаты из списка vulnerability_ids в сработке.
+    """
 
     def __init__(self, api_url: str, api_key: str, verify_ssl: bool = False):
         self.api_url = api_url.rstrip("/")
@@ -40,10 +62,8 @@ class DefectDojoClient:
         )
         _DEBUG("DDClient init: api_url=%s, verify_ssl=%s", self.api_url, self.verify)
 
-    # ------------------------------------------------------------------
-    # Low-level helpers
-    # ------------------------------------------------------------------
-
+    # retry нужен для обработки временных проблем с сетью или сервером, таких как 502/503/504 ошибки, 
+    # а также для обработки нестабильных соединений при проверке SSL.
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -70,7 +90,6 @@ class DefectDojoClient:
             raise DDApiError(f"GET {url} failed: {e}") from e
 
     def _paginate(self, url: str, params: Optional[Dict] = None) -> List[Dict]:
-        """Fetch all pages of a paginated endpoint."""
         items: List[Dict] = []
         page = 1
         while url:
@@ -86,9 +105,6 @@ class DefectDojoClient:
         return items
 
     # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def fetch_findings(self, test_id: int) -> List[Dict]:
         """
         Скачивает findings по test id для triage функции, т.е. для анализ актуальные и не закрытых сработок. 
@@ -141,7 +157,7 @@ class DefectDojoClient:
             return None
 
     def add_comment(self, finding_id: int, comment: str) -> bool:
-        """Post a note/comment to a finding."""
+        """Добавляет комментарий к сработке. Возвращает True при успехе, False при ошибке."""
         try:
             r = self.session.post(
                 f"{self.api_url}/api/v2/notes/",
@@ -157,7 +173,7 @@ class DefectDojoClient:
 
     @staticmethod
     def _dedup_vulnerability_ids(finding: Dict) -> None:
-        """Remove duplicate vulnerability_id entries from a finding in-place."""
+        """Убирает дубликаты из списка vulnerability_ids в сработке. Иногда DefectDojo может возвращать дубликаты, что может мешать анализу."""
         vuln_ids = finding.get("vulnerability_ids")
         if not vuln_ids or not isinstance(vuln_ids, list):
             return

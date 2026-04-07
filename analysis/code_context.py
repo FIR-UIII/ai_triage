@@ -22,14 +22,23 @@ class CodeContext:
 
 
 class CodeContextProvider:
-    """Resolves finding file paths against a local repo and reads source code."""
+    """
+    Класс для получения контекста исходного кода для сработок SAST. 
+    На вход принимает корневой путь репозитория и максимальное количество символов для контекста. 
+    Метод get_context принимает словарь с данными finding, извлекает путь к файлу и номер строки, 
+    пытается найти файл в репозитории, читает его содержимое и возвращает объект CodeContext 
+    с обрезанным контекстом вокруг строки сработки.
+    """
 
-    def __init__(self, repo_root: str, max_chars: int = 24576):
+    def __init__(self, repo_root: str, max_chars: int = 24576, max_lines: int = 50):
         self.repo_root = Path(repo_root).resolve()
         self.max_chars = max_chars
+        self.max_lines = max_lines
 
     def get_context(self, finding: Dict) -> Optional[CodeContext]:
-        """Return source code context for a finding, or None if unavailable."""
+        """
+        Возвращает контекст исходного кода для сработки, или None, если недоступен
+        """
         file_path = finding.get("file_path") or finding.get("sast_source_file_path")
         if not file_path:
             return None
@@ -43,7 +52,9 @@ class CodeContextProvider:
         return self._read_and_truncate(resolved, line)
 
     def _resolve_path(self, file_path: str) -> Optional[Path]:
-        """Try progressively shorter suffixes of file_path until one exists under repo_root."""
+        """
+        Пробует progressively shorter суффиксы file_path, пока не найдется существующий файл в repo_root.
+        """
         posix = PurePosixPath(file_path)
         parts = posix.parts
         start = 1 if parts and parts[0] == "/" else 0
@@ -55,12 +66,15 @@ class CodeContextProvider:
         return None
 
     def _read_and_truncate(self, path: Path, line: Optional[int]) -> CodeContext:
-        """Read file; return full content or a window centred on *line*."""
+        """
+        Читает файл и возвращает контекст вокруг указанной строки. Если файл слишком большой, обрезает его.
+        """
         text = path.read_text(encoding="utf-8", errors="replace")
         all_lines = text.splitlines(keepends=True)
         total = len(all_lines)
 
-        if len(text) <= self.max_chars:
+        # Если файл помещается и по строкам и по символам — отдаём целиком
+        if total <= self.max_lines and len(text) <= self.max_chars:
             return CodeContext(
                 file_path_resolved=str(path),
                 content=text,
@@ -70,21 +84,22 @@ class CodeContextProvider:
                 total_lines=total,
             )
 
-        max_lines = self.max_chars // 80
+        # Ограничение по строкам (основной лимит)
+        limit = min(self.max_lines, self.max_chars // 80) if self.max_chars else self.max_lines
 
         if line and 0 < line <= total:
-            half = max_lines // 2
+            half = limit // 2
             start = max(0, line - 1 - half)
-            end = min(total, start + max_lines)
-            start = max(0, end - max_lines)
+            end = min(total, start + limit)
+            start = max(0, end - limit)
         else:
             start = 0
-            end = min(total, max_lines)
+            end = min(total, limit)
 
         content = "".join(all_lines[start:end])
 
-        # Hard-truncate if lines are unusually long (e.g. minified JS)
-        if len(content) > self.max_chars:
+        # Жесткое обрезание, если строки необычно длинные (например, минифицированный JS)
+        if self.max_chars and len(content) > self.max_chars:
             content = content[: self.max_chars]
 
         return CodeContext(
