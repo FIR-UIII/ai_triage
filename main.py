@@ -95,16 +95,19 @@ def _build_engine(settings, vector_store=None, llm_client=None, repo_path=None):
 
 
 def _load_or_fetch(dd_client, test_id: int, cache_file: str, logger) -> list:
+    """
+    Функция подгрузки findings. Если есть кеш - то загружает из него, если нет вызывает функцию для скачивания по test id если нет кеша 
+    """
     cache_path = Path(cache_file)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if cache_path.exists():
+    if cache_path.exists(): # создание файла для кеширования
         with open(cache_path, "r", encoding="utf-8") as f:
             findings = json.load(f)
         logger.info("Loaded %d findings from cache: %s", len(findings), cache_file)
         return findings
 
-    findings = dd_client.fetch_findings(test_id=test_id)
+    findings = dd_client.fetch_findings(test_id=test_id) # формирование запроса на скачивание если нет кеша
     with open(cache_path, "w", encoding="utf-8") as f:
         json.dump(findings, f, ensure_ascii=False, indent=2)
     logger.info("Fetched and cached %d findings to: %s", len(findings), cache_file)
@@ -132,7 +135,9 @@ def triage(
         None, "--repo", "-r", help="Path to local repository checkout for source code context"
     ),
 ) -> None:
-    """Run triage on findings from a DefectDojo test."""
+    """
+    Команда для триажа findings, я не знаю как это работает, наверное магия AI 
+    """
     settings = _load_settings()
     _setup_logging(settings.log_level)
     logger = logging.getLogger(__name__)
@@ -141,11 +146,12 @@ def triage(
     output = output_file or f"{settings.output_dir}/triage_{test_id}.jsonl"
     Path(output).parent.mkdir(parents=True, exist_ok=True)
 
-    dd = _build_dd_client(settings)
-    engine = _build_engine(settings, repo_path=repo)
+    dd = _build_dd_client(settings) # загружаем класс DD
+    engine = _build_engine(settings, repo_path=repo) # загружаем класс TriageEngine
 
-    findings = _load_or_fetch(dd, test_id, cache, logger)
+    findings = _load_or_fetch(dd, test_id, cache, logger) # загрузка finding по test id для триажа
 
+    # статистика
     fp_count = 0
     review_count = 0
 

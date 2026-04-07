@@ -57,35 +57,37 @@ class TriageEngine:
     # ------------------------------------------------------------------
 
     def triage(self, finding: Dict) -> TriageResult:
-        """Run the full triage pipeline for a single finding."""
+        """
+        Оркестратор (pipeline) проверок триажа
+        """
         finding_id = finding.get("id", 0)
         logger.info(
             "[%s] Triaging: %s", finding_id, str(finding.get("title", ""))[:70]
         )
 
-        # Stage 1 – Deterministic rules
+        # Шаг 1 – Deterministic rules
         result = self._stage_rules(finding)
         if result:
             return result
 
-        # Stage 2 – Exact metadata match
+        # Шаг 2 – Точный поиск metadata match
         cve = self._primary_cve(finding)
         component = finding.get("component_name")
         result = self._stage_meta_match(finding, cve, component)
         if result:
             return result
 
-        # Stage 3 – Semantic similarity
+        # Шаг 3 – Semantic similarity RAG
         result = self._stage_similarity(finding, cve)
         if result:
             return result
 
-        # Stage 4 – LLM + optional Stage 5 reachability
+        # Шаг 4 – LLM 
         result = self._stage_llm(finding)
         if result:
             return result
 
-        # Stage 6 – Fallback
+        # Шаг 6 – Fallback при отсутсвии результата
         return TriageResult(
             finding_id=finding_id,
             action=TriageAction.NEEDS_REVIEW,

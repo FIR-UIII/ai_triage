@@ -158,7 +158,7 @@ class KnowledgeEnricher:
         }
 
         _DEBUG("enrich_from_product: fetching FPs for product_id=%d ...", test_id)
-        fps = self.dd.fetch_false_positives_by_product(test_id)
+        fps = self.dd.fetch_false_positives_by_test_id(test_id)
         stats["fetched"] = len(fps)
         _DEBUG("enrich_from_product: fetched %d false positives", len(fps))
         logger.info(

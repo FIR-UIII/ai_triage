@@ -1,9 +1,6 @@
 """
-Source code context provider for SAST finding triage.
-
-Reads source files from a local repository checkout and prepares
-code snippets for LLM analysis.  When the file is too large for the
-LLM context window, a window centred on the finding line is extracted.
+Сode_context работает для триажа сработок SAST. Цель обогатить контекст LLM для более точного обьяснения сработки
+Читает локально файлы исхожного кода репозитория. Если файл слишком большой - обрезает.
 """
 
 import logging

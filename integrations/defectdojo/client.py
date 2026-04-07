@@ -90,11 +90,18 @@ class DefectDojoClient:
     # ------------------------------------------------------------------
 
     def fetch_findings(self, test_id: int) -> List[Dict]:
-        """Fetch all findings for a given test, enriched with test_name."""
+        """
+        Скачивает findings по test id для triage функции, т.е. для анализ актуальные и не закрытых сработок. 
+        Фильтры: active=True, false_p=False
+        """
         test_name = self.get_test_name(test_id)
         findings = self._paginate(
             f"{self.api_url}/api/v2/findings/",
-            params={"test": test_id},
+            params= {
+                "test": test_id,
+                "false_p": False,
+                "active": True,
+                },
         )
         for f in findings:
             f["test_name"] = test_name
@@ -102,11 +109,10 @@ class DefectDojoClient:
         logger.info("Fetched %d findings for test %d", len(findings), test_id)
         return findings
 
-    def fetch_false_positives_by_product(self, test_id: int) -> List[Dict]:
-        """Fetch all closed False Positive findings for a product.
-
-        Filters: false_p=True, active=False (i.e., mitigated/closed FPs).
-        The `notes` field on each finding contains the analyst's justification.
+    def fetch_false_positives_by_test_id(self, test_id: int) -> List[Dict]:
+        """
+        Загрузка False Positive findings. 
+        Фильтры: false_p=True, active=False.
         """
         url = f"{self.api_url}/api/v2/findings/"
         params = {
@@ -115,12 +121,12 @@ class DefectDojoClient:
             "active": False,
             "limit": 100,
         }
-        _DEBUG("fetch_false_positives_by_product: test_id=%d, url=%s, params=%s",
+        _DEBUG("fetch_false_positives_by_test_id: test_id=%d, url=%s, params=%s",
                 test_id, url, params)
         findings = self._paginate(url, params=params)
         for f in findings:
             self._dedup_vulnerability_ids(f)
-        _DEBUG("fetch_false_positives_by_product: got %d findings", len(findings))
+        _DEBUG("fetch_false_positives_by_test_id: got %d findings", len(findings))
         logger.info(
             "Fetched %d false positives for test_id %d", len(findings), test_id
         )
