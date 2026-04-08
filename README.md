@@ -6,6 +6,9 @@
 детерминистических правил до анализа достижимости через CodeQL/Semgrep — и выносит
 вердикт `false-positive` или `needs-review` с уверенностью и объяснением.
 
+
+
+
 ---
 
 ## Содержание
@@ -42,8 +45,7 @@ DefectDojo API
 │  Stage 2. Exact Meta Match ──► ChromaDB  │
 │  Stage 3. Semantic Similarity ─► ChromaDB│
 │  Stage 4. LLM Analysis ────► LLM + RAG   │
-│  Stage 5. Reachability ──► Semgrep/CodeQL│
-│  Stage 6. Manual Review fallback         │
+│  Stage 5. Manual Review fallback         │
 └──────────────────────────────────────────┘
       │
       ▼
@@ -174,12 +176,14 @@ docker run -d -e OLLAMA_NUM_GPU=0 --cpus=8 \
 
 ```bash
 llama-server \
-  --hf-repo matrixportal/Phi-4-mini-instruct-Q4_K_M-GGUF \
-  --hf-file phi-4-mini-instruct-q4_k_m.gguf \
-  --ctx-size 8192 --port 8080 --offline --metrics
-
-# Запуск на GPU (нужен бинарный файл llama-b8685-bin-win-cuda-12.4-x64)
-llama-server -m C:\Users\Admin\Desktop\Project\ai_demo\llm\qwen2.5-coder-7b-instruct-q4_k_m.gguf --host 127.0.0.1 --port 8080 -ngl 40
+  -m /llm/qwen2.5-coder-7b-instruct-q4_k_m.gguf \
+  --host 127.0.0.1 \
+  --port 8080 \
+  --temp 0.7 \
+  --ctx-size 8192 \ # опционально указать окно контекста 
+  -ngl 40
+  --offline \
+  --metrics
 
 # Проверить: GET http://localhost:8080/health
 ```
@@ -192,20 +196,35 @@ LLM_API_KEY=none
 ```
 
 ---
+## CLI-команды
 
-## Векторная база знаний (RAG / ChromaDB)
+## enrich - обогащение векторной базы знаний (RAG / ChromaDB)
 
-### Первичное наполнение (вручную)
+### Первичное наполнение (вручную) - старый вариант
 
 ```bash
-python rag/create_rag_meta_chromadb.py
+python legacy/create_rag_meta_chromadb.py
 ```
 
 ### Автоматическое наполнение из DefectDojo
 
 ```bash
-python main.py enrich --product-id 298           # реальная запись
-python main.py enrich --product-id 298 --dry-run  # предпросмотр
+python main.py enrich --product-id 298           # с записью в RAG
+python main.py enrich --product-id 298 --dry-run # предпросмотр без записи в RAG
+
+# Пример вывода:
+```json
+{
+  "fetched": 42,
+  "processed": 42,
+  "added": 17,
+  "skipped_duplicate": 23,
+  "skipped_no_reason": 2,
+  "errors": 0
+}
+
+# проверить что было внесено в RAG
+python ./rag/check_db.py
 ```
 
 ### Добавление записи из кода
@@ -228,24 +247,11 @@ store.add_entry(KnowledgeEntry(
 ))
 ```
 
-### Пороги сходства
-
-| Параметр | Смысл | Default |
-|---|---|---|
-| `SIMILARITY_THRESHOLD` | Минимальный score для Stage 3 | `0.75` |
-| `DEDUP_THRESHOLD` | Выше — дубликат, не добавляется | `0.92` |
-
-`score = 1 − cosine_distance` ∈ [−1, 1]. Чем ближе к `1.0` — тем более похожи тексты.
-
----
-
-## CLI-команды
-
 ### `triage` — триаж сработок
 
 ```
 Options:
-  -t, --test-id    INT   ID теста в DefectDojo            [required]
+  -t, --test-id    INT   триаж ID теста из DefectDojo [обязательный]
   -c, --cache      PATH  JSON-кеш (создаётся автоматически)
   -o, --output     PATH  Выходной JSONL [./output/triage_<id>.jsonl]
       --post-comments    Записывать результат как комментарий в DD
@@ -263,33 +269,39 @@ python main.py triage --test-id 15540 --cache ./cache/findings_15540.json
 
 # Указать путь к результатам
 python main.py triage --test-id 15540 --output ./results/sca_15540.jsonl
-```
 
----
+# Ожидаемое поведение в процессе выполнения
+# Пишется лог без ошибок ERROR
+tail -f /путь/к/вашему/лог-файлу.log # Get-Content -Path "C:\путь\к\вашему\лог-файлу.log" -Wait
+  ...
+  2026-04-08 09:09:11,741 [INFO] triage.engine: [3291534] Stage 1 match: [Rule:test_file] Фильтр по тестовым файлам: сработки внутри директорий test/spec не попадают в продакшн.
+  2026-04-08 09:09:11,742 [INFO] triage.engine: [3291535] Triaging: app.rules.go.lang.security.audit.crypto.math-random-used
 
-### `enrich` — обогатить базу знаний
+# Пишется результат работы с ключом triage_result, отображается результат в ключе verdict
+{"id": 2858280, ... "triage_result": {"finding_id": 2858280, "action": "llm_analysis", "verdict": "false-positive", "confidence": 0.9, "explanation": "The use of `math/rand` in the provided code snippet is not for cryptographic purposes. It is used to calculate a delay for periodic bundle downloads, which is a common practice in non-cryptographic applications.", "similar_finding_ids": [], "dd_comment": "[LLM Triage] false-positive (confidence=0.90): The use of `math/rand` in the provided code snippet is not for cryptographic purposes. It is used to calculate a delay for periodic bundle downloads, which is a common practice in non-cryptographic applications.", "metadata": {}}
 
-```
-Options:
-  -p, --product-id  INT  ID продукта в DefectDojo   [required]
-      --dry-run          Показать что добавится, без записи в базу
-```
-
-```bash
-python main.py enrich --product-id 298
-python main.py enrich --product-id 298 --dry-run
-```
-
-Вывод:
-```json
-{
-  "fetched": 42,
-  "processed": 42,
-  "added": 17,
-  "skipped_duplicate": 23,
-  "skipped_no_reason": 2,
-  "errors": 0
-}
+# на сервере модели LLM нет ошибок и есть логи обращений (на примере llama-server)
+main: model loaded
+main: server is listening on http://127.0.0.1:8080
+srv  params_from_: Chat format: peg-native
+slot get_availabl: id  3 | task -1 | selected slot by LRU, t_last = -1
+srv  get_availabl: updating prompt cache
+srv          load:  - looking for better prompt, base f_keep = -1.000, sim = 0.000
+srv        update:  - cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, 28928 tokens, 8589934592 est)
+srv  get_availabl: prompt cache update took 0.01 ms
+slot launch_slot_: id  3 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist
+slot launch_slot_: id  3 | task 0 | processing task, is_child = 0
+slot update_slots: id  3 | task 0 | new prompt, n_ctx_slot = 28928, n_keep = 0, task.n_tokens = 941
+slot update_slots: id  3 | task 0 | n_tokens = 0, memory_seq_rm [0, end)
+slot init_sampler: id  3 | task 0 | init sampler, took 0.07 ms, tokens: text = 941, total = 941
+slot update_slots: id  3 | task 0 | prompt processing done, n_tokens = 941, batch.n_tokens = 941
+slot print_timing: id  3 | task 0 |
+prompt eval time =     799.11 ms /   941 tokens (    0.85 ms per token,  1177.56 tokens per second)
+       eval time =    1488.62 ms /    76 tokens (   19.59 ms per token,    51.05 tokens per second)
+      total time =    2287.73 ms /  1017 tokens
+slot      release: id  3 | task 0 | stop processing: n_tokens = 1016, truncated = 0
+srv  update_slots: all slots are idle
+srv  log_server_r: done request: POST /v1/chat/completions 127.0.0.1 200
 ```
 
 ---
@@ -335,10 +347,7 @@ Finding
   ▼ Stage 4 — LLM analysis с RAG-контекстом
   │   KB-записи → промпт → LLM → JSON {verdict, confidence, explanation}
   │
-  ▼ Stage 5 — Reachability (только SAST, если анализатор подключён)
-  │   sink не достижим (conf≥0.7) → verdict→FP,  conf снижается
-  │
-  ▼ Stage 6 — needs-review (ручной разбор)
+  ▼ Stage 5 — needs-review (ручной разбор)
 ```
 
 ---
@@ -352,31 +361,14 @@ Finding
 2. Извлекает причину FP из `notes` (3 уровня):
    - **Regex** — паттерны: "патч от вендора", "ложная тревога", "исправление" и т.д.
    - **LLM fallback** — если regex ничего не нашёл
-   - **Truncated raw note** — запасной вариант (первые 300 символов)
+   - **Truncated raw note** — запасной вариант (первые 500 символов)
 3. Строит документ: `{reason}. CVE: {cve}. Component: {name} {version}`
 4. Проверяет дубликат через `find_duplicate(threshold=DEDUP_THRESHOLD)`
 5. Добавляет только уникальные записи
 
-**Из кода:**
-
-```python
-from integrations.defectdojo.client import DefectDojoClient
-from knowledge.vector_store import VectorStore
-from knowledge.enrichment import KnowledgeEnricher
-from llm_backend.client import LlamaCppClient
-
-enricher = KnowledgeEnricher(
-    dd_client=DefectDojoClient(api_url="https://...", api_key="token"),
-    vector_store=VectorStore(),
-    llm_client=LlamaCppClient(model_path="./llm/Qwen3-4B.gguf"),
-    dedup_threshold=0.92,
-)
-stats = enricher.enrich_from_product(product_id=298, dry_run=False)
-```
-
 ---
 
-## Анализ достижимости (Reachability)
+## Анализ достижимости (Reachability) - процессе разработки
 
 Применяется только к SAST-сработкам (поле `sast_source_file_path` заполнено).
 
