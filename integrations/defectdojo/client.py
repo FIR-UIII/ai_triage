@@ -148,6 +148,27 @@ class DefectDojoClient:
         )
         return findings
 
+    def fetch_all_findings(self, test_id: int) -> List[Dict]:
+        """
+        Загрузка всех findings по test_id без фильтрации по статусу.
+        Используется для бенчмарка — получение окончательно размеченных сработок.
+        """
+        url = f"{self.api_url}/api/v2/findings/"
+        params = {
+            "test": test_id,
+            "limit": 100,
+        }
+        _DEBUG("fetch_all_findings: test_id=%d, url=%s, params=%s",
+                test_id, url, params)
+        findings = self._paginate(url, params=params)
+        for f in findings:
+            self._dedup_vulnerability_ids(f)
+        _DEBUG("fetch_all_findings: got %d findings", len(findings))
+        logger.info(
+            "Fetched %d total findings for test_id %d", len(findings), test_id
+        )
+        return findings
+
     def get_test_name(self, test_id: int) -> Optional[str]:
         try:
             data = self._get(f"{self.api_url}/api/v2/tests/{test_id}/")

@@ -1,13 +1,8 @@
 # AI Triage
-
 Автоматизированный триаж срабатываний безопасности из DefectDojo с использованием RAG + LLM.
-
 Система последовательно проверяет каждую сработку по шести стадиям — от быстрых
 детерминистических правил до анализа достижимости через CodeQL/Semgrep — и выносит
 вердикт `false-positive` или `needs-review` с уверенностью и объяснением.
-
-
-
 
 ---
 
@@ -83,7 +78,7 @@ cp .env.example .env
 
 ---
 
-## Конфигурация (.env)
+### Настроить конфигурацию (.env)
 
 Все параметры читаются из `.env` в корне проекта.
 
@@ -120,9 +115,9 @@ POST_COMMENTS=false      # true → писать результат как ко�
 
 ---
 
-## LLM-бекенд
+### Поднять LLM-бекенд
 
-### Вариант A: локальный llama.cpp (GGUF)
+#### Вариант A: локальный llama.cpp (GGUF)
 
 Работает без интернета, без GPU. Бекенд по умолчанию.
 
@@ -143,7 +138,7 @@ LLM_N_THREADS=8
 
 ---
 
-### Вариант B: Ollama (Docker)
+#### Вариант B: Ollama (Docker)
 
 ```bash
 docker run -d --cpus=8 -v llm:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
@@ -170,7 +165,7 @@ docker run -d -e OLLAMA_NUM_GPU=0 --cpus=8 \
 
 ---
 
-### Вариант C: llama-server (llama.cpp HTTP)
+#### Вариант C: llama-server (llama.cpp HTTP)
 
 Лучший вариант для параллельной обработки.
 
@@ -196,38 +191,45 @@ LLM_API_KEY=none
 ```
 
 ---
-## CLI-команды
+## Использование
+Приложение работает в 3 режимах
+- обогащение RAG **enrich**
+- проведение триажа **triage**
+- проверка эффективности триажа (benchmark) **bench**
 
-## enrich - обогащение векторной базы знаний (RAG / ChromaDB)
-
-### Первичное наполнение (вручную) - старый вариант
+### enrich - обогащение векторной базы знаний (RAG / ChromaDB)
+Если БД будет пустой или недостаточно насыщена контекстом что считать false-positive то результат триажа будет 
+в большей части бесполезен. Т.к. модель не будет знать что относить к таким сработкам и намеренно выдавать статус need-review т.е. нужно проведение ручной проверки.
 
 ```bash
-python legacy/create_rag_meta_chromadb.py
-```
-
 ### Автоматическое наполнение из DefectDojo
-
-```bash
-python main.py enrich --product-id 298           # с записью в RAG
-python main.py enrich --product-id 298 --dry-run # предпросмотр без записи в RAG
+python main.py enrich --test-id 1234 --dry-run # предпросмотр без записи в RAG
+python main.py enrich --test-id 1234           # с записью в RAG
 
 # Пример вывода:
 ```json
 {
-  "fetched": 42,
-  "processed": 42,
-  "added": 17,
-  "skipped_duplicate": 23,
-  "skipped_no_reason": 2,
-  "errors": 0
+  "fetched": 42, # сколько было загружено findings
+  "processed": 42, # сколько было успешно обработано для загрузки
+  "added": 17, # сколько было успешно добавлено в RAG
+  "skipped_duplicate": 23, # сколько из processed было пропущено по причине дублирования в RAG
+  "skipped_no_reason": 2, # сколько из processed было пропущено по причине отсутствия обоснования в комментариях
+  "errors": 0 # сколько сработок обработано с ошибков и не было записано в RAG
 }
 
-# проверить что было внесено в RAG
+# проверить что было внесено в RAG, проверить статус БД
 python ./rag/check_db.py
+
+# Удаление записей из БД
+python main.py rag-delete --delete-finding 12345
+python main.py rag-delete --delete-entry fp_12345_abcdef
+python main.py rag-delete --delete-rule rule_name
+
+# РУчное добавление записи в БД
+python main.py rag-add --add-finding example_finding.json
 ```
 
-### Добавление записи из кода
+#### Добавление записи из кода
 
 ```python
 from knowledge.vector_store import VectorStore
@@ -248,13 +250,15 @@ store.add_entry(KnowledgeEntry(
 ```
 
 ### `triage` — триаж сработок
+Основной режим работы
 
 ```
 Options:
-  -t, --test-id    INT   триаж ID теста из DefectDojo [обязательный]
-  -c, --cache      PATH  JSON-кеш (создаётся автоматически)
-  -o, --output     PATH  Выходной JSONL [./output/triage_<id>.jsonl]
-      --post-comments    Записывать результат как комментарий в DD
+  -t, --test-id    INT   id теста DefectDojo [обязательный]
+  -c, --cache      PATH  файла для создания кеша (создаётся автоматически)
+  -o, --output     PATH  файл с результатами (по умолчанию пишет в ./output/triage_<id>.jsonl)
+  -fp,--false-positive   фильтровать результат (в output будут записана только размеченные как FP)
+      --post-comments    записать результат как комментарий в DD
 ```
 
 ```bash
@@ -264,13 +268,16 @@ python main.py triage --test-id 15540
 # С автокомментированием в DefectDojo
 python main.py triage --test-id 15540 --post-comments
 
-# Из готового кеша (без обращения к API)
+# Из готового кеша (без обращения к API DD)
 python main.py triage --test-id 15540 --cache ./cache/findings_15540.json
 
 # Указать путь к результатам
 python main.py triage --test-id 15540 --output ./results/sca_15540.jsonl
 
-# Ожидаемое поведение в процессе выполнения
+# Вывести в результат только false-positive
+python main.py triage --test-id 15540 --false-positive
+
+# Ожидаемое поведение в процессе выполнения:
 # Пишется лог без ошибок ERROR
 tail -f /путь/к/вашему/лог-файлу.log # Get-Content -Path "C:\путь\к\вашему\лог-файлу.log" -Wait
   ...
@@ -304,10 +311,22 @@ srv  update_slots: all slots are idle
 srv  log_server_r: done request: POST /v1/chat/completions 127.0.0.1 200
 ```
 
+### `bench` - проверка эффективности работы 
+Цель сравнить статус как был закрыт finding по итогу окончания триажа когда были проведен ручной анализ кода человеком. 
+---
+```bash
+python main.py bench --input output/triage_15540.jsonl --test-id 15540
+
+# Вывод:
+Benchmark results 15540
+  Всего сравнений: 100
+  Верно:   90 (90%)
+  Неверно: 10 (10%) 
+```
 ---
 
-### `fetch` — скачать findings в файл
-
+### `fetch` — скачать findings в файл. 
+Ранее использовался для работы, сейчас не применятеся как ключевая команда. Цель скачать findings по test id
 ```
 Options:
   -t, --test-id  INT   ID теста                           [required]
@@ -317,9 +336,6 @@ Options:
 ```bash
 python main.py fetch --test-id 15540
 python main.py fetch --test-id 15540 --output ./data/raw.json
-
-# С анализом кода
-python main.py triage --test-id 15540 --repo C:/repos/iam
 ```
 
 ---

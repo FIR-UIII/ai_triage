@@ -162,6 +162,9 @@ def triage(
     repo: Optional[str] = typer.Option(
         None, "--repo", "-r", help="Path to local repository checkout for source code context"
     ),
+    false_positive: bool = typer.Option(
+        False, "--false-positive", "-fp", help="Output only false-positive verdicts"
+    ),
 ) -> None:
     """
     Команда для триажа findings, я не знаю как это работает, наверное магия AI 
@@ -187,12 +190,14 @@ def triage(
         for finding in findings:
             result = engine.triage(finding)
             finding["triage_result"] = result.model_dump()
-            out.write(json.dumps(finding, ensure_ascii=False) + "\n")
 
             if result.verdict == "false-positive":
                 fp_count += 1
             else:
                 review_count += 1
+
+            if not false_positive or result.verdict == "false-positive":
+                out.write(json.dumps(finding, ensure_ascii=False) + "\n")
 
             if post_comments and result.dd_comment:
                 dd.add_comment(finding["id"], result.dd_comment)
@@ -277,6 +282,85 @@ def fetch(
 
     logger.info("Saved %d findings to %s", len(findings), dest)
     typer.echo(f"Saved {len(findings)} findings to {dest}")
+
+
+@app.command()
+def bench(
+    input_file: str = typer.Option(
+        ..., "--input", "-i", help="Path to JSONL file with previous triage results"
+    ),
+    test_id: int = typer.Option(
+        ..., "--test-id", "-t", help="DefectDojo test ID to fetch final human-triaged findings"
+    ),
+) -> None:
+    """
+    Бенчмарк: сравнение результатов AI-триажа с окончательной ручной разметкой из DefectDojo.
+    """
+    settings = _load_settings()
+    _setup_logging(settings.log_level)
+    logger = logging.getLogger(__name__)
+
+    # 1. Загрузить результаты AI-триажа из input файла
+    input_path = Path(input_file)
+    if not input_path.exists():
+        typer.echo(f"Input file not found: {input_file}")
+        raise typer.Exit(1)
+
+    ai_results: dict[int, str] = {}  # finding_id -> verdict
+    with open(input_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            finding = json.loads(line)
+            fid = finding.get("id")
+            verdict = (finding.get("triage_result") or {}).get("verdict", "")
+            if fid is not None:
+                ai_results[fid] = verdict
+
+    if not ai_results:
+        typer.echo("No triage results found in input file")
+        raise typer.Exit(1)
+
+    # 2. Скачать окончательно размеченные findings из DefectDojo
+    dd = _build_dd_client(settings)
+    human_findings = dd.fetch_all_findings(test_id=test_id)
+
+    human_status: dict[int, bool] = {}  # finding_id -> is false_positive
+    for f in human_findings:
+        human_status[f["id"]] = bool(f.get("false_p", False))
+
+    # 3. Сравнение
+    correct = 0
+    incorrect = 0
+    total_compared = 0
+
+    for fid, ai_verdict in ai_results.items():
+        if fid not in human_status:
+            logger.warning("Finding %d from input not found in DefectDojo test %d, skipping", fid, test_id)
+            continue
+
+        total_compared += 1
+        ai_is_fp = ai_verdict == "false-positive"
+        human_is_fp = human_status[fid]
+
+        if ai_is_fp == human_is_fp:
+            correct += 1
+        else:
+            incorrect += 1
+
+    # 4. Вывод статистики
+    if total_compared == 0:
+        typer.echo("No matching findings found for comparison")
+        raise typer.Exit(1)
+
+    correct_pct = correct / total_compared * 100
+    incorrect_pct = incorrect / total_compared * 100
+
+    typer.echo(f"Benchmark (test-id={test_id}):")
+    typer.echo(f"  Всего сравнений: {total_compared}")
+    typer.echo(f"  Верно:   {correct} ({correct_pct:.1f}%)")
+    typer.echo(f"  Неверно: {incorrect} ({incorrect_pct:.1f}%)")
 
 
 @app.command()

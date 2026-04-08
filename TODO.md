@@ -7,7 +7,7 @@ https://huggingface.co/scthornton/llama-3.2-3b-securecode
 https://huggingface.co/scthornton/qwen2.5-coder-7b-securecode
 
 # фильтрация результатов
-добавить флаг `--fp` чтобы в output файл выводились только "verdict": "false-positive"
+добавить флаг `--false-positive` `-fp` чтобы в output файл выводились только "verdict": "false-positive" т.е. фильтровать вывод. Остальные статусы не выводить
 
 # бенчмарк
 добавить команду `bench` на вход команда должна примимать `--input`, `-i` файл для анализа файла (это файл output с результатами прошного анализа триажа)
