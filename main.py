@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """
 AI Triage – автоматически производит триаж уязвимостей с использованием RAG + LLM
-
+Основной файл приложения, реализующий CLI с помощью Typer. Содержит команды для триажа, обогащения базы знаний, скачивания данных и бенчмаркинга.
 Команды:
-  triage   – выполнить триаж уязвимостей из теста DefectDojo
-  enrich   – populate the knowledge base from closed false-positives
-
-Пример использования:
-  По умолчанию результаты сохраняются в папку output/ в виде JSONL файла
-  python main.py triage --test-id 15540
-  
-  C добавлением комментариев в DefectDojo:
-  python main.py triage --test-id 15540 --post-comments
+- triage: выполняет триаж сработок по test_id, сохраняет результаты в JSONL и может постить комментарии в DefectDojo
+- enrich: обогащает базу знаний на основе закрытых false-positive сработок
+- fetch: скачивает findings по test_id и сохраняет их в JSON файл
+- bench: сравнивает результаты AI-триажа с окончательной ручной разметкой из DefectDojo
+- rag-delete: удаляет данные из RAG базы знаний по finding ID, документу или правилу
+- rag-add: добавляет один finding в базу знаний RAG на основе JSON файла с данными сработки
 """
 
 import json
