@@ -18,7 +18,6 @@ import hashlib
 import json
 import logging
 import re
-import sys
 from typing import Dict, List, Optional
 
 from core.models import KnowledgeEntry
@@ -26,19 +25,8 @@ from knowledge.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
-_DEBUG = "[DEBUG]"
-
-
-def _DEBUG(msg: str, *args) -> None:
-    formatted = msg % args if args else msg
-    print(f"{_DEBUG} {formatted}", file=sys.stderr, flush=True)
-
-# ------------------------------------------------------------------
-# FP reason extraction
-# ------------------------------------------------------------------
-
-# Patterns that indicate bot/auto-close comments — these should be EXCLUDED
-# from enrichment (they contain no analyst reasoning).
+# Если нужно будет исключить из обогащения определенные шаблоны комментариев (например, от бота или автозакрытия),
+# можно добавить их в этот список. Сейчас он содержит один шаблон, который соответствует комментария
 _SKIP_PATTERNS = [
     r"Mitigated by Semgrep JSON Report re-upload",
 ]
@@ -66,13 +54,12 @@ class FPReasonExtractor:
 
         # Пропустить комментарии бота/автозакрытия — нет аналитического обоснования для извлечения
         if self._is_bot_comment(combined):
-            _DEBUG("  extract: bot/auto-close comment detected, skipping")
+            logger.debug("  extract: bot/auto-close comment detected, skipping")
             return None
 
         # Использовать усеченную заметку в качестве причины
         return combined[:500].strip() or None
 
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _is_bot_comment(text: str) -> bool:
@@ -110,11 +97,6 @@ class FPReasonExtractor:
     #         return None
 
 
-# ------------------------------------------------------------------
-# Enrichment orchestrator
-# ------------------------------------------------------------------
-
-
 class KnowledgeEnricher:
 
     def __init__(
@@ -142,10 +124,10 @@ class KnowledgeEnricher:
             "errors": 0,
         }
 
-        _DEBUG("enrich_from_product: fetching FPs for product_id=%d ...", test_id)
+        logger.debug("enrich_from_product: fetching FPs for product_id=%d ...", test_id)
         fps = self.dd.fetch_false_positives_by_test_id(test_id)
         stats["fetched"] = len(fps)
-        _DEBUG("enrich_from_product: fetched %d false positives", len(fps))
+        logger.debug("enrich_from_product: fetched %d false positives", len(fps))
         logger.info(
             "Enriching from %d false positives (test_id=%d)", len(fps), test_id
         )
@@ -153,20 +135,19 @@ class KnowledgeEnricher:
         for i, finding in enumerate(fps, 1):
             stats["processed"] += 1
             finding_id = finding.get("id")
-            _DEBUG("enrich_from_product: processing finding %d/%d (id=%s) ...",
+            logger.debug("enrich_from_product: processing finding %d/%d (id=%s) ...",
                     i, len(fps), finding_id)
             try:
                 self._process_one(finding, stats, dry_run)
             except Exception as e:
                 logger.error("Error processing finding %s: %s", finding_id, e)
-                _DEBUG("enrich_from_product: ERROR on finding %s: %s", finding_id, e)
+                logger.debug("enrich_from_product: ERROR on finding %s: %s", finding_id, e)
                 stats["errors"] += 1
 
-        _DEBUG("enrich_from_product: DONE, stats=%s", stats)
+        logger.debug("enrich_from_product: DONE, stats=%s", stats)
         logger.info("Enrichment complete: %s", stats)
         return stats
 
-    # ------------------------------------------------------------------
 
     def _process_one(self, finding: Dict, stats: Dict, dry_run: bool) -> None:
         """
@@ -179,7 +160,7 @@ class KnowledgeEnricher:
             logger.debug("Skipping finding %s: no FP reason extracted", finding_id)
             stats["skipped_no_reason"] += 1
             return
-        _DEBUG("  _process_one(%s): reason=%.60s...", finding_id, reason)
+        logger.debug("  _process_one(%s): reason=%.60s...", finding_id, reason)
 
         cves = [
             v.get("vulnerability_id", "")
@@ -194,12 +175,12 @@ class KnowledgeEnricher:
         doc_hash = hashlib.sha256(document.encode()).hexdigest()[:16]
 
         # Проверить на дубликаты — если найдено похожее, пропустить добавление
-        _DEBUG("  _process_one(%s): checking for duplicates (rule=%s) ...", finding_id, rule)
+        logger.debug("  _process_one(%s): checking for duplicates (rule=%s) ...", finding_id, rule)
         duplicate = self.store.find_duplicate(
             document, threshold=self.dedup_threshold, rule=rule or None,
         )
         if duplicate:
-            _DEBUG("  _process_one(%s): duplicate found (score=%.3f), skipping",
+            logger.debug("  _process_one(%s): duplicate found (score=%.3f), skipping",
                     finding_id, duplicate["score"])
             logger.debug(
                 "Skipping finding %s: duplicate found (score=%.3f)",
@@ -228,11 +209,11 @@ class KnowledgeEnricher:
         )
 
         if dry_run:
-            _DEBUG("  _process_one(%s): [DRY RUN] would add entry", finding_id)
+            logger.debug("  _process_one(%s): [DRY RUN] would add entry", finding_id)
             logger.info("[DRY RUN] Would add entry for finding %s: %s", finding_id, document[:80])
             stats["added"] += 1
         elif self.store.add_entry(entry):
-            _DEBUG("  _process_one(%s): entry added", finding_id)
+            logger.debug("  _process_one(%s): entry added", finding_id)
             stats["added"] += 1
 
     @staticmethod

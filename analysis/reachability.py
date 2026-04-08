@@ -44,10 +44,8 @@ class BaseReachabilityAnalyzer(ABC):
         )
 
 
-# ------------------------------------------------------------------
-# Semgrep
-# ------------------------------------------------------------------
 
+# Semgrep
 
 class SemgrepReachabilityAnalyzer(BaseReachabilityAnalyzer):
     """Класс SemgrepReachabilityAnalyzer использует правила dataflow/taint Semgrep для обнаружения достижимых sink'ов.
@@ -120,10 +118,7 @@ class SemgrepReachabilityAnalyzer(BaseReachabilityAnalyzer):
             return self._unavailable(f"Semgrep error: {e}")
 
 
-# ------------------------------------------------------------------
 # CodeQL
-# ------------------------------------------------------------------
-
 
 class CodeQLReachabilityAnalyzer(BaseReachabilityAnalyzer):
     """Класс CodeQLReachabilityAnalyzer использует предсобранную базу данных CodeQL для проверки достижимости данных.

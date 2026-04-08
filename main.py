@@ -35,11 +35,6 @@ app = typer.Typer(
 )
 
 
-# ------------------------------------------------------------------
-# Logging setup
-# ------------------------------------------------------------------
-
-
 def _setup_logging(level: str = "INFO") -> None:
     log_dir = Path("log")
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -64,11 +59,6 @@ def _setup_logging(level: str = "INFO") -> None:
         logging.Formatter("[%(levelname)s] %(message)s")
     )
     root.addHandler(console_handler)
-
-
-# ------------------------------------------------------------------
-# Shared factory helpers
-# ------------------------------------------------------------------
 
 
 def _load_settings():
@@ -140,11 +130,6 @@ def _load_or_fetch(dd_client, test_id: int, cache_file: str, logger) -> list:
         json.dump(findings, f, ensure_ascii=False, indent=2)
     logger.info("Fetched and cached %d findings to: %s", len(findings), cache_file)
     return findings
-
-
-# ------------------------------------------------------------------
-# CLI commands
-# ------------------------------------------------------------------
 
 
 @app.command()
@@ -219,30 +204,26 @@ def enrich(
     """
     Команда для обогащения базы знаний на основе закрытых false-positive findings.
     """
-    import sys
-
-    def _DEBUG(msg: str) -> None:
-        print(f"[DEBUG] {msg}", file=sys.stderr, flush=True)
-
     settings = _load_settings()
     _setup_logging(settings.log_level)
+    logger = logging.getLogger(__name__)
 
-    _DEBUG("enrich: settings loaded, embedding_model=%s" % settings.embedding_model)
-    _DEBUG("enrich: dry_run=%s, test_id=%d" % (dry_run, test_id))
+    logger.debug("enrich: settings loaded, embedding_model=%s", settings.embedding_model)
+    logger.debug("enrich: dry_run=%s, test_id=%d", dry_run, test_id)
 
     from knowledge.enrichment import KnowledgeEnricher
 
-    _DEBUG("enrich: building DefectDojo client ...")
+    logger.debug("enrich: building DefectDojo client ...")
     dd = _build_dd_client(settings)
-    _DEBUG("enrich: DD client ready")
+    logger.debug("enrich: DD client ready")
 
-    _DEBUG("enrich: building VectorStore ...")
+    logger.debug("enrich: building VectorStore ...")
     store = _build_vector_store(settings)
-    _DEBUG("enrich: VectorStore ready")
+    logger.debug("enrich: VectorStore ready")
 
-    _DEBUG("enrich: building LLM client ...")
+    logger.debug("enrich: building LLM client ...")
     llm = _build_llm_client(settings)
-    _DEBUG("enrich: LLM client ready")
+    logger.debug("enrich: LLM client ready")
 
     enricher = KnowledgeEnricher(
         dd_client=dd,
@@ -251,9 +232,9 @@ def enrich(
         dedup_threshold=settings.dedup_threshold,
     )
 
-    _DEBUG("enrich: starting enrichment pipeline ...")
+    logger.debug("enrich: starting enrichment pipeline ...")
     stats = enricher.enrich_from_product(test_id=test_id, dry_run=dry_run)
-    _DEBUG("enrich: pipeline complete")
+    logger.debug("enrich: pipeline complete")
     typer.echo(json.dumps(stats, indent=2))
 
 
@@ -460,10 +441,6 @@ def rag_add(
     ok = store.add_entry(entry)
     typer.echo(f"Added entry '{entry.id}': {'OK' if ok else 'FAILED'}")
 
-
-# ------------------------------------------------------------------
-# Entry point
-# ------------------------------------------------------------------
 
 if __name__ == "__main__":
     app()

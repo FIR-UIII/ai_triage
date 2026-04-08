@@ -8,7 +8,6 @@
 """
 
 import logging
-import sys
 from typing import Dict, List, Optional
 
 import requests
@@ -22,13 +21,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
-_DEBUG = "[DEBUG]"
-
-
-def _DEBUG(msg: str, *args) -> None:
-    formatted = msg % args if args else msg
-    print(f"{_DEBUG} {formatted}", file=sys.stderr, flush=True)
-
 
 # Default timeout for HTTP requests (connect, read) in seconds
 _HTTP_TIMEOUT = (10, 30)
@@ -36,18 +28,17 @@ _HTTP_TIMEOUT = (10, 30)
 
 class DefectDojoClient:
     """
-    Класс DefectDojoClient обеспечивает взаимодействие с REST API DefectDojo v2. 
-    На вход принимает базовый URL API, API ключ и опцию проверки SSL.
+    Класс DefectDojoClient обеспечивает взаимодействие с REST API DefectDojo v2
+    На вход принимает базовый URL API, API ключ и опцию проверки SSL
     Методы:
-        - fetch_findings(test_id): Получает все активные и не помеченные как false positive сработки для данного test_id.
-        - fetch_false_positives_by_test_id(test_id): Получает все сработки, помеченные как false positive и неактивные для данного test_id.
-        - get_test_name(test_id): Получает имя теста по test_id.
-        - add_comment(finding_id, comment): Добавляет комментарий к сработке.
+        - fetch_findings(test_id): Получает все активные и не помеченные как false positive сработки для данного test_id
+        - get_test_name(test_id): Получает имя теста по test_id
+        - add_comment(finding_id, comment): Добавляет комментарий к сработке
     Внутренние методы:
         - _get(url, params): Выполняет HTTP GET запрос с обработкой ошибок и
-            поддержкой повторов с экспоненциальной задержкой.
-        - _paginate(url, params): Получает все страницы результатов для пагинированного эндпоинта.
-        - _dedup_vulnerability_ids(finding): Удаляет дубликаты из списка vulnerability_ids в сработке.
+            поддержкой повторов с экспоненциальной задержкой
+        - _paginate(url, params): Получает все страницы результатов для пагинированного эндпоинта
+        - _dedup_vulnerability_ids(finding): Удаляет дубликаты из списка vulnerability_ids в сработке
     """
 
     def __init__(self, api_url: str, api_key: str, verify_ssl: bool = False):
@@ -60,7 +51,7 @@ class DefectDojoClient:
                 "Content-Type": "application/json",
             }
         )
-        _DEBUG("DDClient init: api_url=%s, verify_ssl=%s", self.api_url, self.verify)
+        logger.debug("DDClient init: api_url=%s, verify_ssl=%s", self.api_url, self.verify)
 
     # retry нужен для обработки временных проблем с сетью или сервером, таких как 502/503/504 ошибки, 
     # а также для обработки нестабильных соединений при проверке SSL.
@@ -70,38 +61,38 @@ class DefectDojoClient:
         before_sleep=before_sleep_log(logger, logging.WARNING),
     )
     def _get(self, url: str, params: Optional[Dict] = None) -> Dict:
-        _DEBUG("HTTP GET %s params=%s verify=%s", url, params, self.verify)
+        logger.debug("HTTP GET %s params=%s verify=%s", url, params, self.verify)
         try:
             r = self.session.get(url, params=params, verify=self.verify, timeout=_HTTP_TIMEOUT)
-            _DEBUG("HTTP GET %s -> status=%d", url, r.status_code)
+            logger.debug("HTTP GET %s -> status=%d", url, r.status_code)
             r.raise_for_status()
             return r.json()
         except requests.exceptions.SSLError as e:
-            _DEBUG("SSL ERROR on GET %s: %s", url, e)
+            logger.debug("SSL ERROR on GET %s: %s", url, e)
             raise DDApiError(f"SSL error on GET {url}: {e}") from e
         except requests.exceptions.ConnectionError as e:
-            _DEBUG("CONNECTION ERROR on GET %s: %s", url, e)
+            logger.debug("CONNECTION ERROR on GET %s: %s", url, e)
             raise DDApiError(f"Connection error on GET {url}: {e}") from e
         except requests.exceptions.Timeout as e:
-            _DEBUG("TIMEOUT on GET %s: %s", url, e)
+            logger.debug("TIMEOUT on GET %s: %s", url, e)
             raise DDApiError(f"Timeout on GET {url}: {e}") from e
         except requests.exceptions.RequestException as e:
-            _DEBUG("REQUEST ERROR on GET %s: %s", url, e)
+            logger.debug("REQUEST ERROR on GET %s: %s", url, e)
             raise DDApiError(f"GET {url} failed: {e}") from e
 
     def _paginate(self, url: str, params: Optional[Dict] = None) -> List[Dict]:
         items: List[Dict] = []
         page = 1
         while url:
-            _DEBUG("_paginate: page=%d, url=%s", page, url)
+            logger.debug("_paginate: page=%d, url=%s", page, url)
             data = self._get(url, params=params)
             results = data.get("results") or []
             items.extend(results)
-            _DEBUG("_paginate: page=%d got %d results (total=%d)", page, len(results), len(items))
+            logger.debug("_paginate: page=%d got %d results (total=%d)", page, len(results), len(items))
             url = data.get("next")
             params = None  # params only needed on first request
             page += 1
-        _DEBUG("_paginate: done, total items=%d", len(items))
+        logger.debug("_paginate: done, total items=%d", len(items))
         return items
 
     # ------------------------------------------------------------------
@@ -128,7 +119,7 @@ class DefectDojoClient:
     def fetch_false_positives_by_test_id(self, test_id: int) -> List[Dict]:
         """
         Загрузка False Positive findings. 
-        Фильтры: false_p=True, active=False.
+        Фильтры: false_p=True, active=False
         """
         url = f"{self.api_url}/api/v2/findings/"
         params = {
@@ -137,12 +128,12 @@ class DefectDojoClient:
             "active": False,
             "limit": 100,
         }
-        _DEBUG("fetch_false_positives_by_test_id: test_id=%d, url=%s, params=%s",
+        logger.debug("fetch_false_positives_by_test_id: test_id=%d, url=%s, params=%s",
                 test_id, url, params)
         findings = self._paginate(url, params=params)
         for f in findings:
             self._dedup_vulnerability_ids(f)
-        _DEBUG("fetch_false_positives_by_test_id: got %d findings", len(findings))
+        logger.debug("fetch_false_positives_by_test_id: got %d findings", len(findings))
         logger.info(
             "Fetched %d false positives for test_id %d", len(findings), test_id
         )
@@ -158,12 +149,12 @@ class DefectDojoClient:
             "test": test_id,
             "limit": 100,
         }
-        _DEBUG("fetch_all_findings: test_id=%d, url=%s, params=%s",
+        logger.debug("fetch_all_findings: test_id=%d, url=%s, params=%s",
                 test_id, url, params)
         findings = self._paginate(url, params=params)
         for f in findings:
             self._dedup_vulnerability_ids(f)
-        _DEBUG("fetch_all_findings: got %d findings", len(findings))
+        logger.debug("fetch_all_findings: got %d findings", len(findings))
         logger.info(
             "Fetched %d total findings for test_id %d", len(findings), test_id
         )
@@ -178,7 +169,9 @@ class DefectDojoClient:
             return None
 
     def add_comment(self, finding_id: int, comment: str) -> bool:
-        """Добавляет комментарий к сработке. Возвращает True при успехе, False при ошибке."""
+        """
+        Добавляет комментарий к сработке. Возвращает True при успехе, False при ошибке
+        """
         try:
             r = self.session.post(
                 f"{self.api_url}/api/v2/notes/",
@@ -194,7 +187,9 @@ class DefectDojoClient:
 
     @staticmethod
     def _dedup_vulnerability_ids(finding: Dict) -> None:
-        """Убирает дубликаты из списка vulnerability_ids в сработке. Иногда DefectDojo может возвращать дубликаты, что может мешать анализу."""
+        """
+        Убирает дубликаты из списка vulnerability_ids в сработке. Иногда DefectDojo может возвращать дубликаты, что может мешать анализу
+        """
         vuln_ids = finding.get("vulnerability_ids")
         if not vuln_ids or not isinstance(vuln_ids, list):
             return

@@ -12,7 +12,6 @@
 
 import logging
 import os
-import sys
 from typing import Dict, List, Optional
 
 import chromadb
@@ -32,14 +31,6 @@ logger = logging.getLogger(__name__)
 _DEDUP_THRESHOLD_DEFAULT = 0.92
 _SIMILARITY_THRESHOLD_DEFAULT = 0.75
 
-_DEBUG = "[DEBUG]"
-
-
-def _DEBUG(msg: str, *args) -> None:
-    """Print a DEBUG debug message to stderr for tracing execution flow."""
-    formatted = msg % args if args else msg
-    print(f"{_DEBUG} {formatted}", file=sys.stderr, flush=True)
-
 
 class VectorStore:
     """ChromaDB-backed vector knowledge base for false-positive patterns.
@@ -54,39 +45,39 @@ class VectorStore:
         persist_directory: str = "./rag/chroma_db_metadata",
         embedding_model: str = "all-MiniLM-L6-v2",
     ):
-        _DEBUG("VectorStore.__init__ START (collection=%s, path=%s, model=%s)",
+        logger.debug("VectorStore.__init__ START (collection=%s, path=%s, model=%s)",
                 collection_name, persist_directory, embedding_model)
 
         self._embedding_model_name = embedding_model
 
-        _DEBUG("Loading SentenceTransformer embedding model: %s ...", embedding_model)
+        logger.debug("Loading SentenceTransformer embedding model: %s ...", embedding_model)
         self._ef = SentenceTransformerEmbeddingFunction(model_name=embedding_model)
-        _DEBUG("Embedding model loaded OK")
+        logger.debug("Embedding model loaded OK")
 
-        _DEBUG("Opening ChromaDB PersistentClient at: %s", persist_directory)
+        logger.debug("Opening ChromaDB PersistentClient at: %s", persist_directory)
         self.client = chromadb.PersistentClient(path=persist_directory)
-        _DEBUG("ChromaDB client ready")
+        logger.debug("ChromaDB client ready")
 
         # Open collection: try existing first (without embedding_function to
         # avoid metadata conflict if DB was created with a different EF type),
         # then fall back to creating a new one with our explicit EF.
-        _DEBUG("Trying to get existing collection '%s' ...", collection_name)
+        logger.debug("Trying to get existing collection '%s' ...", collection_name)
         try:
             self.collection = self.client.get_collection(name=collection_name)
             # Attach our embedding function for client-side embed on query/add
             self.collection._embedding_function = self._ef
-            _DEBUG("Opened existing collection '%s', count=%d",
+            logger.debug("Opened existing collection '%s', count=%d",
                     collection_name, self.collection.count())
         except Exception:
-            _DEBUG("Collection '%s' not found, creating new ...", collection_name)
+            logger.debug("Collection '%s' not found, creating new ...", collection_name)
             self.collection = self.client.create_collection(
                 name=collection_name,
                 metadata={"hnsw:space": "cosine"},
                 embedding_function=self._ef,
             )
-            _DEBUG("Created new collection '%s'", collection_name)
+            logger.debug("Created new collection '%s'", collection_name)
 
-        _DEBUG("Collection ready, count=%d", self.collection.count())
+        logger.debug("Collection ready, count=%d", self.collection.count())
 
         self._validate_embedding_dimension()
 
@@ -96,7 +87,7 @@ class VectorStore:
             persist_directory,
             embedding_model,
         )
-        _DEBUG("VectorStore.__init__ DONE")
+        logger.debug("VectorStore.__init__ DONE")
 
     def _validate_embedding_dimension(self) -> None:
         """
@@ -109,21 +100,21 @@ class VectorStore:
         """
         count = self.collection.count()
         if count == 0:
-            _DEBUG("Collection is empty, skipping dimension validation")
+            logger.debug("Collection is empty, skipping dimension validation")
             return
 
-        _DEBUG("Validating embedding dimension against %d stored entries ...", count)
+        logger.debug("Validating embedding dimension against %d stored entries ...", count)
 
         # Вот тут как раз и ловим ошибки на несовпадение размерности эмбеддингов, которые могут возникать 
         # при загрузке коллекции, созданной другой моделью.
         try:
             peek = self.collection.peek(limit=1)
             if not peek.get("embeddings") or not peek["embeddings"]:
-                _DEBUG("No embeddings in peek result, skipping validation")
+                logger.debug("No embeddings in peek result, skipping validation")
                 return
             stored_dim = len(peek["embeddings"][0])
         except Exception as e:
-            _DEBUG("Could not peek at stored embeddings: %s", e)
+            logger.debug("Could not peek at stored embeddings: %s", e)
             return
 
         # Получить значение размерности эмбеддингов текущей модели, сгенерировав тестовый эмбеддинг
@@ -131,10 +122,10 @@ class VectorStore:
             test_embedding = self._ef(["dimension test"])
             current_dim = len(test_embedding[0])
         except Exception as e:
-            _DEBUG("Could not generate test embedding: %s", e)
+            logger.debug("Could not generate test embedding: %s", e)
             return
 
-        _DEBUG("Dimension check: stored=%d, current_model=%d", stored_dim, current_dim)
+        logger.debug("Dimension check: stored=%d, current_model=%d", stored_dim, current_dim)
 
         if stored_dim != current_dim:
             msg = (
@@ -145,10 +136,10 @@ class VectorStore:
                 f"Either set EMBEDDING_MODEL to the model that created the DB, "
                 f"or delete the DB and recreate it."
             )
-            _DEBUG("FATAL: %s", msg)
+            logger.debug("FATAL: %s", msg)
             raise ValueError(msg)
 
-        _DEBUG("Dimension validation OK (%d)", stored_dim)
+        logger.debug("Dimension validation OK (%d)", stored_dim)
 
     # ------------------------------------------------------------------
 
@@ -175,9 +166,9 @@ class VectorStore:
         where = {"$and": conditions} if len(conditions) > 1 else conditions[0]
 
         try:
-            _DEBUG("search_by_meta: where=%s", where)
+            logger.debug("search_by_meta: where=%s", where)
             res = self.collection.get(where=where, limit=n_results)
-            _DEBUG("search_by_meta: got %d results", len(res.get("ids", [])))
+            logger.debug("search_by_meta: got %d results", len(res.get("ids", [])))
             return self._pack_get_results(res)
         except Exception as e:
             logger.error("Meta search failed: %s", e)
@@ -200,7 +191,7 @@ class VectorStore:
         where = {"rule": {"$eq": rule}} if rule else None
 
         try:
-            _DEBUG("search_by_similarity: n_results=%d, threshold=%.2f, rule=%s, text=%.60s...",
+            logger.debug("search_by_similarity: n_results=%d, threshold=%.2f, rule=%s, text=%.60s...",
                     n_results, threshold, rule, text)
             res = self.collection.query(
                 query_texts=[text],
@@ -208,9 +199,9 @@ class VectorStore:
                 where=where,
             )
             items = self._pack_query_results(res)
-            _DEBUG("search_by_similarity: %d raw results, filtering by threshold %.2f", len(items), threshold)
+            logger.debug("search_by_similarity: %d raw results, filtering by threshold %.2f", len(items), threshold)
             filtered = [item for item in items if item["score"] >= threshold]
-            _DEBUG("search_by_similarity: %d results above threshold", len(filtered))
+            logger.debug("search_by_similarity: %d results above threshold", len(filtered))
             return filtered
         except Exception as e:
             logger.error("Similarity search failed: %s", e)
@@ -223,7 +214,7 @@ class VectorStore:
         if not rule:
             return []
         try:
-            _DEBUG("search_by_rule: rule=%s", rule)
+            logger.debug("search_by_rule: rule=%s", rule)
             res = self.collection.get(
                 limit=n_results,
                 where={"rule": {"$eq": rule}},
@@ -243,7 +234,7 @@ class VectorStore:
         Поиск дубликата по тексту с заданным порогом схожести. 
         Если указано правило, поиск ограничивается записями с этим правилом.
         """
-        _DEBUG("find_duplicate: threshold=%.2f, rule=%s", threshold, rule)
+        logger.debug("find_duplicate: threshold=%.2f, rule=%s", threshold, rule)
         results = self.search_by_similarity(text, n_results=1, threshold=threshold, rule=rule)
         return results[0] if results else None
 
@@ -255,7 +246,7 @@ class VectorStore:
         все необходимые данные и метаданные для хранения.
         """
         try:
-            _DEBUG("add_entry: id=%s", entry.id)
+            logger.debug("add_entry: id=%s", entry.id)
             self.collection.add(
                 ids=[entry.id],
                 documents=[entry.document],

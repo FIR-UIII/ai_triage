@@ -113,8 +113,6 @@ class LLMAnalyzer:
         result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
         return result
 
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _strip_markdown_fences(text: str) -> str:
         """
