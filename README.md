@@ -249,7 +249,7 @@ store.add_entry(KnowledgeEntry(
 ))
 ```
 
-### `triage` — триаж сработок
+### triage — триаж сработок
 Основной режим работы
 
 ```
@@ -311,7 +311,7 @@ srv  update_slots: all slots are idle
 srv  log_server_r: done request: POST /v1/chat/completions 127.0.0.1 200
 ```
 
-### `bench` - проверка эффективности работы 
+### bench - проверка эффективности работы 
 Цель сравнить статус как был закрыт finding по итогу окончания триажа когда были проведен ручной анализ кода человеком. 
 ---
 ```bash
@@ -325,7 +325,7 @@ Benchmark results 15540
 ```
 ---
 
-### `fetch` — скачать findings в файл. 
+### fetch — скачать findings в файл. 
 Ранее использовался для работы, сейчас не применятеся как ключевая команда. Цель скачать findings по test id
 ```
 Options:
@@ -385,8 +385,7 @@ Finding
 ---
 
 ## Анализ достижимости (Reachability) - процессе разработки
-
-Применяется только к SAST-сработкам (поле `sast_source_file_path` заполнено).
+Применяется только к SAST-сработкам (поле `sast_source_file_path` заполнено). Пока в разработке
 
 ### Semgrep
 
@@ -529,37 +528,3 @@ ai_triage/
 ├── llm/                           # GGUF-модели (gitignore)
 └── samples/                       # примеры Ollama / langchain / llama-server
 ```
-
----
-
-## Формат выходных данных
-
-Каждая строка `.jsonl` — исходный finding + поле `triage_result`:
-
-```json
-{
-  "id": 2982921,
-  "title": "openssl:1:1.1.1zd-1.el7 Affected By: CVE-2019-1543",
-  "severity": "High",
-  "triage_result": {
-    "finding_id": 2982921,
-    "action": "rag_meta_match",
-    "verdict": "false-positive",
-    "confidence": 0.87,
-    "explanation": "Exact CVE/component match in knowledge base (1 entries)",
-    "similar_finding_ids": [2728961],
-    "dd_comment": "[Auto-triage] Similar false-positive findings:\n  - https://.../finding/2728961: ...",
-    "metadata": {}
-  }
-}
-```
-
-Значения `action`:
-
-| action | Стадия | Описание |
-|---|---|---|
-| `deterministic_rule` | 1 | Сработало детерминистическое правило |
-| `rag_meta_match` | 2 | Точное совпадение CVE + component в KB |
-| `rag_similarity_match` | 3 | Семантически похожая запись в KB |
-| `llm_analysis` | 4+5 | LLM вынес вердикт (с reachability или без) |
-| `needs_review` | 6 | Нет решения — необходим ручной разбор |
