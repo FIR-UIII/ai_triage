@@ -1,3 +1,9 @@
+__pycache__/
 .venv/
-chroma_db/
-chroma_db_metadata/
+llm/*
+*.gguf
+.env
+cache/
+output/
+rag/chroma*
+*.log
