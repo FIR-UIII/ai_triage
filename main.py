@@ -49,9 +49,9 @@ def _setup_logging(level: str = "INFO") -> None:
     )
     root.addHandler(file_handler)
 
-    # Console handler — WARNING and above, minimal
+    # Console handler — respects the configured log level
     console_handler = logging.StreamHandler(sys.stderr)
-    console_handler.setLevel(logging.WARNING)
+    console_handler.setLevel(getattr(logging, level.upper(), logging.WARNING))
     console_handler.setFormatter(
         logging.Formatter("[%(levelname)s] %(message)s")
     )
@@ -283,7 +283,8 @@ def bench(
     if not input_path.exists():
         typer.echo(f"Input file not found: {input_file}")
         raise typer.Exit(1)
-
+    
+    logger.debug("bench: input file загружен input_file=%s, test_id=%d", input_file, test_id)
     ai_results: dict[int, str] = {}  # finding_id -> verdict
     with open(input_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -292,6 +293,7 @@ def bench(
                 continue
             finding = json.loads(line)
             fid = finding.get("id")
+            logger.debug("bench: работаем с finding id=%s", fid)
             verdict = (finding.get("triage_result") or {}).get("verdict", "")
             if fid is not None:
                 ai_results[fid] = verdict
@@ -299,16 +301,20 @@ def bench(
     if not ai_results:
         typer.echo("No triage results found in input file")
         raise typer.Exit(1)
+    typer.echo(f"  Загружено {len(ai_results)} AI-вердиктов")
 
     # 2. Скачать окончательно размеченные findings из DefectDojo
+    typer.echo(f"Загрузка findings из DefectDojo (test_id={test_id}) ...")
     dd = _build_dd_client(settings)
     human_findings = dd.fetch_all_findings(test_id=test_id)
+    typer.echo(f"  Получено {len(human_findings)} findings из DefectDojo")
 
     human_status: dict[int, bool] = {}  # finding_id -> is false_positive
     for f in human_findings:
         human_status[f["id"]] = bool(f.get("false_p", False))
 
     # 3. Сравнение
+    typer.echo("Сравнение результатов ...")
     correct = 0
     incorrect = 0
     total_compared = 0

@@ -1,18 +1,5 @@
 """
-LLM client abstraction layer.
-
-Provides a common interface so the triage engine and enrichment pipelines
-are decoupled from the specific LLM backend.
-
-Supported backends:
-  - LlamaCppClient        – local GGUF model via llama-cpp-python
-  - OpenAICompatibleClient – any OpenAI-compatible API
-                             (llama-server, Ollama OpenAI endpoint, vLLM, etc.)
-
-Usage:
-    from llm_backend.client import build_llm_client
-    llm = build_llm_client(settings)
-    result_json = llm.chat(system_prompt, user_prompt)
+Модуль с интерфейсом к LLM-бэкендам.
 """
 
 import logging
@@ -24,45 +11,43 @@ logger = logging.getLogger(__name__)
 
 
 class LLMClient(ABC):
-    """Minimal interface for chat-completion LLM backends.
-
-    Both system_prompt and user_prompt are always passed; backends that do
-    not support system messages should concatenate them.
+    """
+    Минимальный интерфейс для LLM-бэкендов с поддержкой чат-комплешн
+    Оба параметра system_prompt и user_prompt всегда передаются
     """
 
     @abstractmethod
     def chat(self, system_prompt: str, user_prompt: str) -> str:
-        """Send a chat-completion request.
-
-        Returns the raw content string (expected to be valid JSON for the
-        structured prompts used elsewhere in the codebase).
+        """
+        Отправляет запрос на чат-комплешн и получает ответ
+        Возвращает сырую строку контента (ожидается, что это будет валидный JSON для
+        структурированных подсказок, используемых в остальной части кода)
         """
         ...
 
 
 class LlamaCppClient(LLMClient):
-    """Backend: local GGUF model via llama-cpp-python.
-
-    Best for: offline / air-gapped environments without GPU.
+    """
+    Класс LlamaCppClient реализует интерфейс LLMClient для локального бэкенда на основе llama.cpp.
     """
 
     def __init__(
         self,
-        model_path: str,
-        n_ctx: int = 8192,
-        n_threads: int = 8,
-        temperature: float = 0.2,
+        model_path: str, # путь к файлу модели
+        n_ctx: int = 8192, # по умолчанию используем 8192 токенов контекста, что подходит для большинства современных моделей, но можно настроить в зависимости от конкретной модели и задач
+        n_threads: int = 8, # по умолчанию используем 8 потоков, что обычно хорошо работает на современных CPU, но можно настроить в зависимости от конкретного железа
+        temperature: float = 0.2, # хардкодим температуру для llama.cpp, так как она не влияет на качество в нашем случае и может только ухудшить его при слишком высоких значениях
     ):
         # Deferred import – llama_cpp is optional
         from llama_cpp import Llama
 
         self._llm = Llama(
             model_path=model_path,
-            chat_format="chatml",
+            chat_format="chatml", # используем формат ChatML, который поддерживает системные и пользовательские сообщения, что идеально подходит для нашего сценария
             n_ctx=n_ctx,
             n_threads=n_threads,
-            verbose=False,
-            n_gpu_layers=-1
+            verbose=False, # отключаем лишний вывод в консоль, чтобы не засорять терминал
+            n_gpu_layers=-1 # используем все доступные GPU-слои, если модель поддерживает GPU, иначе работаем на CPU
         )
         self.temperature = temperature
         logger.info("LlamaCppClient loaded: %s", model_path)
@@ -80,25 +65,17 @@ class LlamaCppClient(LLMClient):
 
 
 class OpenAICompatibleClient(LLMClient):
-    """Backend: any OpenAI-compatible REST API.
-
-    Works with:
-      - llama-server (llama.cpp HTTP server)
-      - Ollama  (http://localhost:11434/v1)
-      - vLLM
-      - LM Studio
-      - Azure OpenAI
-
-    Set LLM_API_BASE_URL and LLM_API_MODEL in your .env.
+    """
+    Класс OpenAICompatibleClient реализует интерфейс LLMClient для бэкенда, совместимого с OpenAI API.
     """
 
     def __init__(
         self,
-        base_url: str,
-        model: str = "default",
-        api_key: str = "none",
-        temperature: float = 0.2,
-        max_tokens: int = 1024,
+        base_url: str, # базовый URL для OpenAI-совместимого API
+        model: str = "default", # модель для использования
+        api_key: str = "none", # API ключ для аутентификации
+        temperature: float = 0.2, # температура для генерации текста
+        max_tokens: int = 1024, # максимальное количество токенов в ответе
     ):
         # Deferred import – openai is optional
         from openai import OpenAI
@@ -124,10 +101,8 @@ class OpenAICompatibleClient(LLMClient):
 
 
 def build_llm_client(settings: Settings) -> LLMClient:
-    """Factory: pick the right backend based on settings.
-
-    If LLM_API_BASE_URL is set → use OpenAI-compatible API.
-    Otherwise → use local llama.cpp.
+    """
+    Функция для создания LLMClient
     """
     if settings.llm_api_base_url:
         return OpenAICompatibleClient(
