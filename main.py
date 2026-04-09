@@ -149,7 +149,7 @@ def triage(
     ),
 ) -> None:
     """
-    Команда для триажа findings, я не знаю как это работает, наверное магия AI 
+    Команда для триажа findings, я не знаю как это работает, наверное магия AI =)
     """
     settings = _load_settings()
     _setup_logging(settings.log_level)
