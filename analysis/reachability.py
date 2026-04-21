@@ -48,11 +48,11 @@ class BaseReachabilityAnalyzer(ABC):
 # Semgrep
 
 class SemgrepReachabilityAnalyzer(BaseReachabilityAnalyzer):
-    """Класс SemgrepReachabilityAnalyzer использует правила dataflow/taint Semgrep для обнаружения достижимых sink'ов.
+    """
+    Класс SemgrepReachabilityAnalyzer использует правила dataflow/taint Semgrep для обнаружения достижимых sink'ов.
 
     Интеграция в пайплайн:
         semgrep --config=auto --dataflow-traces --json <target>
-
     """
 
     def __init__(self, semgrep_bin: str = "semgrep", config: str = "auto"):
@@ -121,7 +121,8 @@ class SemgrepReachabilityAnalyzer(BaseReachabilityAnalyzer):
 # CodeQL
 
 class CodeQLReachabilityAnalyzer(BaseReachabilityAnalyzer):
-    """Класс CodeQLReachabilityAnalyzer использует предсобранную базу данных CodeQL для проверки достижимости данных.
+    """
+    Класс CodeQLReachabilityAnalyzer использует предсобранную базу данных CodeQL для проверки достижимости данных.
 
     CI/CD интеграция:
         # Этап сборки (один раз на репозиторий / при изменении исходного кода):
