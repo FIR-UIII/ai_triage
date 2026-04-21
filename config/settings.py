@@ -1,6 +1,3 @@
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
 """
 Класс для определения конфигурации приложения. Использует pydantic для валидации и загрузки из .env 
 или переменных окружения.
@@ -10,6 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 2. Значения из файла .env (через model_config)
 3. Дефолты из Field(default=...) в классе Settings
 """
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 class Settings(BaseSettings):
     # DefectDojo
     dd_api_url: str = Field(..., validation_alias="DD_API_URL")

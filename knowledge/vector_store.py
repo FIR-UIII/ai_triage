@@ -33,10 +33,8 @@ _SIMILARITY_THRESHOLD_DEFAULT = 0.75
 
 
 class VectorStore:
-    """ChromaDB-backed vector knowledge base for false-positive patterns.
-
-    Uses cosine distance explicitly so score = 1 - distance ∈ [-1, 1].
-    Requires an explicit embedding model name to avoid silent model mismatches.
+    """
+    Класс для работы с ChromaDB. Инициализирует БД и готовит переменные для дальейшей работы
     """
 
     def __init__(

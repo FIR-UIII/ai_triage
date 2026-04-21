@@ -44,13 +44,17 @@ def _is_test_file(finding: Dict) -> bool:
 
 
 def _is_documentation_file(finding: Dict) -> bool:
-    """Фильтр по документационным файлам: сработки внутри файлов документации не попадают в продакшн."""
+    """
+    Фильтр по документационным файлам по их расширению 
+    """
     path = finding.get("file_path") or finding.get("sast_source_file_path") or ""
     return bool(re.search(r"\.(md|rst|txt|adoc|asciidoc)$", path, re.IGNORECASE))
 
 
 def _is_vendor_backport(finding: Dict) -> bool:
-    """Фильтр по исправлениям от вендора: аналитические заметки явно указывают, что вендор уже внес исправление."""
+    """
+    Фильтр по исправлениям от вендора: аналитические заметки явно указывают, что вендор уже внес исправление
+    """
     notes = finding.get("notes") or []
     keywords = (
         "патч от вендора",
@@ -69,12 +73,15 @@ def _is_vendor_backport(finding: Dict) -> bool:
 
 
 def _is_already_mitigated(finding: Dict) -> bool:
-    """Фильтр по уже смягченным/закрытым сработкам: сработки, уже помеченные как mitigated/closed в DefectDojo."""
+    """
+    Фильтр по уже закрытым сработкам: сработки, уже помеченные как mitigated/closed в DefectDojo
+    """
     return bool(finding.get("is_mitigated")) and not finding.get("active", True)
 
 
 
-# Регистрация правил и функция анализа сработок. Чтобы добавить новое правило, просто добавь новый объект Rule в список RULES с соответствующей функцией проверки.
+# Регистрация правил и функция анализа сработок. 
+# Чтобы добавить новое правило, просто добавь новый объект Rule в список RULES с соответствующей функцией проверки.
 RULES: List[Rule] = [
     Rule(
         name="severity_out_of_scope",
@@ -112,8 +119,8 @@ RULES: List[Rule] = [
 def analyze_finding(finding: Dict) -> Tuple[bool, str, float]:
     """
     Применяет все правила к сработке и возвращает первое совпадение.
-    Returns:
-        Tuple[is_false_positive, explanation, confidence]
+    Возвращает:
+        (is_false_positive, explanation, confidence)
     """
     for rule in RULES:
         if rule.check(finding):

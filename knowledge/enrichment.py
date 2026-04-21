@@ -113,7 +113,7 @@ class KnowledgeEnricher:
 
     def enrich_from_product(self, test_id: int, dry_run: bool = False) -> Dict:
         """
-        Основная функция для обогащения базы знаний на основе ложных срабатываний из DefectDojo для данного test_id.
+        Основная функция для обогащения базы знаний на основе ложных срабатываний из DefectDojo для данного test_id
         """
         stats = {
             "fetched": 0,
@@ -151,7 +151,7 @@ class KnowledgeEnricher:
 
     def _process_one(self, finding: Dict, stats: Dict, dry_run: bool) -> None:
         """
-        Обрабатывает одно ложное срабатывание, извлекая причину и добавляя запись в базу знаний.
+        Обрабатывает одно ложное срабатывание, извлекая причину и добавляя запись в базу знаний
         """
         finding_id = finding.get("id")
 

@@ -71,15 +71,16 @@ class LLMAnalyzer:
         rag_context: List[str],
         code_context: Optional[str] = None,
     ) -> Optional[Dict]:
-        """Analyse a single finding.
+        """
+        Анализ одной сработки.
 
-        Args:
-            finding:      Raw finding dict from DefectDojo.
-            rag_context:  List of relevant knowledge-base document strings.
-            code_context: Optional source code snippet for the finding location.
+        Принимает на вход:
+            finding:      Сырая сработка из ДД.
+            rag_context:  Список с найденными похожими сработками из RAG.
+            code_context: Кусок кода, если запуск с --repo флагом и передачей пути до исходников.
 
-        Returns:
-            Dict with keys verdict, confidence, explanation – or None on failure.
+        Возвращает:
+            Словарь  {verdict, confidence, explanation} или None
         """
         normalized = self._normalize_finding(finding)
         context_text = self._format_context(rag_context)
