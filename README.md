@@ -11,19 +11,20 @@
 1. [Архитектура](#архитектура)
 2. [Требования](#требования)
 3. [Установка](#установка)
-4. [Конфигурация (.env)](#конфигурация-env)
-5. [LLM-бекенд](#llm-бекенд)
+4. [Docker](#docker)
+5. [Конфигурация (.env)](#конфигурация-env)
+6. [LLM-бекенд](#llm-бекенд)
    - [Вариант A: локальный llama.cpp (GGUF)](#вариант-a-локальный-llamacpp-gguf)
    - [Вариант B: Ollama (Docker)](#вариант-b-ollama-docker)
    - [Вариант C: llama-server (llama.cpp HTTP)](#вариант-c-llama-server-llamacpp-http)
-6. [Векторная база знаний (RAG / ChromaDB)](#векторная-база-знаний-rag--chromadb)
-7. [CLI-команды](#cli-команды)
-8. [Пайплайн триажа (6 стадий)](#пайплайн-триажа-6-стадий)
-9. [Модуль обогащения знаний](#модуль-обогащения-знаний)
-10. [Анализ достижимости (Reachability)](#анализ-достижимости-reachability)
-11. [Детерминистические правила](#детерминистические-правила)
-12. [Структура проекта](#структура-проекта)
-13. [Формат выходных данных](#формат-выходных-данных)
+7. [Векторная база знаний (RAG / ChromaDB)](#векторная-база-знаний-rag--chromadb)
+8. [CLI-команды](#cli-команды)
+9. [Пайплайн триажа (6 стадий)](#пайплайн-триажа-6-стадий)
+10. [Модуль обогащения знаний](#модуль-обогащения-знаний)
+11. [Анализ достижимости (Reachability)](#анализ-достижимости-reachability)
+12. [Детерминистические правила](#детерминистические-правила)
+13. [Структура проекта](#структура-проекта)
+14. [Формат выходных данных](#формат-выходных-данных)
 
 ---
 
@@ -74,6 +75,97 @@ pip install -r requirements.txt
 
 cp .env.example .env
 # Отредактировать .env: заполнить DD_API_URL, DD_API_KEY, путь к модели
+```
+
+---
+
+## Docker
+
+Альтернатива локальной установке — запуск в контейнере без настройки Python-окружения.
+
+### Предварительные требования
+
+- [Docker](https://docs.docker.com/get-docker/) 24+
+- Заполненный `.env` файл (скопируйте из `.env.example`)
+- Созданные директории для томов:
+
+```bash
+mkdir -p rag/chroma_db_metadata cache output log
+```
+
+### Сборка образа
+
+```bash
+# Стандартная сборка — режим API (Ollama / llama-server / OpenAI-совместимый)
+docker build -t ai-triage .
+
+# С поддержкой локального GGUF-бекенда (llama-cpp-python, ~+300 МБ)
+docker build --build-arg INCLUDE_LOCAL_LLM=true -t ai-triage:local .
+
+# С нестандартной эмбеддинг-моделью
+docker build --build-arg EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2 -t ai-triage .
+```
+
+> Первая сборка скачает зависимости (~2–3 ГБ) и эмбеддинг-модель `all-MiniLM-L6-v2` (~90 МБ).
+> Последующие сборки без изменения `requirements.txt` или модели используют кеш Docker и занимают секунды.
+
+### Запуск команд
+
+**Linux / macOS:**
+
+```bash
+# enrich — обогащение базы знаний
+docker run --rm \
+  --env-file .env \
+  -v $(pwd)/rag/chroma_db_metadata:/app/rag/chroma_db_metadata \
+  ai-triage enrich --test-id 1234
+
+# triage — триаж сработок
+docker run --rm \
+  --env-file .env \
+  -v $(pwd)/rag/chroma_db_metadata:/app/rag/chroma_db_metadata \
+  -v $(pwd)/output:/app/output \
+  ai-triage triage --test-id 15540
+
+# bench — бенчмарк
+docker run --rm \
+  --env-file .env \
+  -v $(pwd)/output:/app/output \
+  ai-triage bench --input /app/output/triage_15540.jsonl --test-id 15540
+```
+
+**Windows PowerShell:**
+
+```powershell
+docker run --rm `
+  --env-file .env `
+  -v ${PWD}/rag/chroma_db_metadata:/app/rag/chroma_db_metadata `
+  -v ${PWD}/output:/app/output `
+  ai-triage triage --test-id 15540
+```
+
+### Тома (Volumes)
+
+| Том в контейнере               | Назначение                                      |
+|--------------------------------|-------------------------------------------------|
+| `/app/rag/chroma_db_metadata`  | Векторная база знаний (ChromaDB) — **важно сохранять** |
+| `/app/llm`                     | GGUF-модели (только для локального режима)      |
+| `/app/cache`                   | Кеш findings из DefectDojo                      |
+| `/app/output`                  | JSONL с результатами триажа                     |
+| `/app/log`                     | Лог-файлы                                       |
+
+### docker-compose
+
+Файл `docker-compose.yml` уже включён в проект. Пример использования:
+
+```bash
+# Однократная команда
+docker compose run --rm ai-triage triage --test-id 15540
+
+# С Ollama как LLM-бекендом — раскомментировать блок ollama в docker-compose.yml,
+# затем задать в .env: LLM_API_BASE_URL=http://ollama:11434/v1
+docker compose up ollama -d
+docker compose run --rm ai-triage triage --test-id 15540
 ```
 
 ---

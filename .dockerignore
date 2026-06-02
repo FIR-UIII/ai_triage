@@ -1,0 +1,37 @@
+# Version control
+.git/
+.gitignore
+
+# Python environment & cache
+.venv/
+__pycache__/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# Secrets (mount .env at runtime via --env-file)
+.env
+
+# Large runtime data (mount as Docker volumes)
+llm/
+rag/chroma_db_metadata/
+cache/
+output/
+log/
+
+# Legacy / dev-only code (not needed in the image)
+legacy/
+samples/
+test/
+
+# Dev / build artifacts
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Docs
+TODO.md

@@ -1,0 +1,29 @@
+services:
+  ai-triage:
+    build: .
+    env_file: .env
+    volumes:
+      - ./rag/chroma_db_metadata:/app/rag/chroma_db_metadata
+      - ./cache:/app/cache
+      - ./output:/app/output
+      - ./log:/app/log
+      # Uncomment for local GGUF mode (also set INCLUDE_LOCAL_LLM=true in build.args):
+      # - ./llm:/app/llm
+    # Example: run triage for test 15540
+    # command: ["triage", "--test-id", "15540"]
+
+  # ---------------------------------------------------------------------------
+  # Optional: Ollama as LLM backend.
+  # Set in .env:  LLM_API_BASE_URL=http://ollama:11434/v1
+  #               LLM_API_MODEL=qwen2.5:0.5b
+  # ---------------------------------------------------------------------------
+  # ollama:
+  #   image: ollama/ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   cpus: 8
+
+# volumes:
+#   ollama_data:
