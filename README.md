@@ -137,11 +137,7 @@ docker run --rm \
 **Windows PowerShell:**
 
 ```powershell
-docker run --rm `
-  --env-file .env `
-  -v ${PWD}/rag/chroma_db_metadata:/app/rag/chroma_db_metadata `
-  -v ${PWD}/output:/app/output `
-  ai-triage triage --test-id 15540
+docker run --rm --env-file .env -v ${PWD}/rag/chroma_db_metadata:/app/rag/chroma_db_metadata -v ${PWD}/output:/app/output -v ${PWD}/log:/app/log ai-triage triage --test-id 8371
 ```
 
 ### Тома (Volumes)
