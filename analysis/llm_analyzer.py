@@ -55,6 +55,35 @@ Respond with valid JSON only:
   "explanation": "<string>"
 }}"""
 
+# Системный промпт для проверяющего LLM, который проверяет результат основного LLM
+_VERIFICATION_SYSTEM_PROMPT = """\
+You are an expert security reviewer validating an automated triage decision.
+Your role is to verify the correctness and consistency of the initial verdict.
+
+Initial Analysis Result:
+{initial_result}
+
+Known false-positive patterns from the knowledge base:
+{rag_context}
+
+Rules for verification:
+1. Check if the verdict is logically consistent with the explanation and finding data.
+2. If the explanation contradicts the verdict, flag this as a logical inconsistency.
+3. Assess confidence: is the level of confidence (0.0-1.0) justified by the explanation?
+4. If confidence seems too high given uncertain context, you may lower it.
+5. If you find clear logical errors that would reverse the verdict, you MAY change it.
+6. Keep explanation concise (max 100 words), focusing on what changed and why.
+
+Respond with valid JSON only:
+{{
+  "verdict": "false-positive" | "needs-review",
+  "confidence": <float 0.0-1.0>,
+  "explanation": "<string>",
+  "verified": true | false
+}}
+
+"verified": true means you confirm the initial decision, false means you found issues."""
+
 # Класс LLMAnalyzer, который использует LLMClient для анализа сработок.
 # Он формирует системный и пользовательский промпты, вызывает LLM и обрабатывает ответ.
 class LLMAnalyzer:
@@ -112,6 +141,52 @@ class LLMAnalyzer:
 
         # Clamp confidence to [0, 1]
         result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
+        return result
+
+    def verify(
+        self,
+        finding: Dict,
+        initial_result: Dict,
+        rag_context: List[str],
+    ) -> Optional[Dict]:
+        """
+        Проверка результата основного LLM на логические расхождения и уверенность.
+
+        Принимает на вход:
+            finding:         Сырая сработка из ДД.
+            initial_result:  Результат от основного LLM.
+            rag_context:     Список с похожими сработками из RAG.
+
+        Возвращает:
+            Словарь {verdict, confidence, explanation, verified} или None
+        """
+        normalized = self._normalize_finding(finding)
+        context_text = self._format_context(rag_context)
+        system_prompt = _VERIFICATION_SYSTEM_PROMPT.format(
+            initial_result=json.dumps(initial_result, ensure_ascii=False, indent=2),
+            rag_context=context_text,
+        )
+        user_prompt = (
+            "Verify this security finding with the initial triage result above:\n"
+            + json.dumps(normalized, ensure_ascii=False, indent=2)
+        )
+
+        try:
+            raw = self.llm.chat(system_prompt, user_prompt)
+            result = json.loads(self._strip_markdown_fences(raw))
+        except json.JSONDecodeError as e:
+            logger.error("Verification LLM returned non-JSON response: %s | raw=%s", e, raw[:200])
+            return None
+        except Exception as e:
+            logger.error("Verification LLM call failed: %s", e)
+            return None
+
+        if "verdict" not in result or "confidence" not in result:
+            logger.warning("Unexpected verification LLM response structure: %s", result)
+            return None
+
+        result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
+        result.setdefault("verified", True)
         return result
 
     @staticmethod

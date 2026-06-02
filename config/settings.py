@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     llm_api_model: str = Field("default", validation_alias="LLM_API_MODEL")
     llm_api_key: str = Field("none", validation_alias="LLM_API_KEY")
 
+    # Checker LLM (verification stage) — optional
+    checker_llm_enabled: bool = Field(False, validation_alias="CHECKER_LLM_ENABLED")
+    checker_llm_model_path: str = Field("./llm/Qwen3-4B.gguf", validation_alias="CHECKER_LLM_MODEL_PATH")
+    checker_llm_n_ctx: int = Field(8192, validation_alias="CHECKER_LLM_N_CTX")
+    checker_llm_n_threads: int = Field(8, validation_alias="CHECKER_LLM_N_THREADS")
+    checker_llm_temperature: float = Field(0.2, validation_alias="CHECKER_LLM_TEMPERATURE")
+    checker_llm_api_base_url: str = Field("", validation_alias="CHECKER_LLM_API_BASE_URL")
+    checker_llm_api_model: str = Field("default", validation_alias="CHECKER_LLM_API_MODEL")
+    checker_llm_api_key: str = Field("none", validation_alias="CHECKER_LLM_API_KEY")
+
     # Source code context
     code_context_max_chars: int = Field(0, validation_alias="CODE_CONTEXT_MAX_CHARS")
     code_context_lines: int = Field(50, validation_alias="CODE_CONTEXT_LINES")

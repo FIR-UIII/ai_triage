@@ -23,8 +23,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Отключаем OpenAI SDK телеметрию (PostHog) — иначе будут запросы на posthog.com
+# Отключаем телеметрию — иначе будут запросы от фреймворков к внешним сервисам
 os.environ.setdefault("OPENAI_DISABLE_SEND_TELEMETRY", "1")
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 app = typer.Typer(
     help="AI Triage: автоматически производит триаж уязвимостей с использованием RAG + LLM",
@@ -86,10 +88,18 @@ def _build_llm_client(settings):
     return build_llm_client(settings)
 
 
+def _build_checker_llm_client(settings):
+    from llm_backend.client import build_checker_llm_client
+    if not settings.checker_llm_enabled:
+        return None
+    return build_checker_llm_client(settings)
+
+
 def _build_engine(settings, vector_store=None, llm_client=None, repo_path=None):
     from triage.engine import TriageEngine
     store = vector_store or _build_vector_store(settings)
     llm = llm_client or _build_llm_client(settings)
+    checker_llm = _build_checker_llm_client(settings)
 
     code_context = None
     if repo_path:
@@ -106,6 +116,7 @@ def _build_engine(settings, vector_store=None, llm_client=None, repo_path=None):
         llm_client=llm,
         dd_base_url=settings.dd_api_url,
         code_context_provider=code_context,
+        checker_llm_client=checker_llm,
     )
 
 

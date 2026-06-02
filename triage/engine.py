@@ -36,9 +36,11 @@ class TriageEngine:
         reachability_analyzer: Optional[BaseReachabilityAnalyzer] = None,
         source_root: Optional[str] = None,
         code_context_provider: Optional[CodeContextProvider] = None,
+        checker_llm_client: Optional[LLMClient] = None,
     ):
         self.store = vector_store
         self.llm_analyzer = LLMAnalyzer(llm_client)
+        self.checker_llm_analyzer = LLMAnalyzer(checker_llm_client) if checker_llm_client else None
         self.dd_base_url = dd_base_url.rstrip("/")
         self.reachability = reachability_analyzer
         self.source_root = source_root
@@ -70,9 +72,11 @@ class TriageEngine:
         if result:
             return result
 
-        # Шаг 4 – LLM 
+        # Шаг 4 – LLM
         result = self._stage_llm(finding)
         if result:
+            # Шаг 4.5 – Verification (optional)
+            result = self._stage_verification(finding, result, cve) or result
             return result
 
         # Шаг 6 – Fallback при отсутсвии результата
@@ -228,7 +232,7 @@ class TriageEngine:
             confidence,
         )
 
-        # Шаг 5. Анализ достижимости для SAST находок (опционально) пока не тестировался
+        # Анализ достижимости для SAST находок (опционально) пока не тестировался
         reach_note = ""
         if self.reachability and finding.get("sast_source_file_path"):
             reach = self.reachability.analyze(finding, self.source_root)
@@ -252,6 +256,71 @@ class TriageEngine:
             dd_comment=(
                 f"[LLM Triage] {verdict} "
                 f"(confidence={confidence:.2f}): {explanation}{reach_note}"
+            ),
+        )
+
+    def _stage_verification(
+        self, finding: Dict, initial_result: TriageResult, cve: Optional[str]
+    ) -> Optional[TriageResult]:
+        """
+        Шаг 5. Проверка результата основного LLM на логические расхождения и уверенность.
+         - Опциональный этап, работает только если checker_llm_analyzer инициализирован.
+         - Проверяющий LLM анализирует вердикт и объяснение основного LLM.
+         - Может менять вердикт, если найдены логические ошибки.
+         - Может уточнять уровень уверенности (confidence).
+        """
+        if not self.checker_llm_analyzer:
+            return None
+
+        # Build RAG context for verification
+        rule_key = finding.get("title", "")
+        rag_context = self.store.search_by_rule(rule_key, n_results=3)
+        if not rag_context:
+            ctx_results = self.store.search_by_similarity(
+                cve or rule_key, n_results=3, threshold=0.5
+            )
+            rag_context = [r["document"] for r in ctx_results]
+
+        # Convert TriageResult to dict for verification
+        initial_dict = {
+            "verdict": initial_result.verdict,
+            "confidence": initial_result.confidence,
+            "explanation": initial_result.explanation,
+        }
+
+        verify_result = self.checker_llm_analyzer.verify(
+            finding, initial_dict, rag_context
+        )
+        if not verify_result:
+            return None
+
+        # If verification confirms initial result, return None to keep original
+        if verify_result.get("verified", True):
+            logger.info(
+                "[%s] Stage 5 verification: confirmed initial result",
+                finding.get("id"),
+            )
+            return None
+
+        # If verification found issues, update result
+        verdict = verify_result.get("verdict", initial_result.verdict)
+        confidence = float(verify_result.get("confidence", initial_result.confidence))
+        explanation = verify_result.get("explanation", initial_result.explanation)
+
+        logger.info(
+            "[%s] Stage 5 verification: verdict changed or confidence updated",
+            finding.get("id"),
+        )
+
+        return TriageResult(
+            finding_id=finding["id"],
+            action=TriageAction.LLM_ANALYSIS,
+            verdict=verdict,
+            confidence=confidence,
+            explanation=f"{initial_result.explanation} [Verified: {explanation}]",
+            dd_comment=(
+                f"[LLM Triage + Verification] {verdict} "
+                f"(confidence={confidence:.2f}): {explanation}"
             ),
         )
 
