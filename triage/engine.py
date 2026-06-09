@@ -12,7 +12,6 @@ import logging
 from typing import Dict, List, Optional
 
 from analysis.llm_analyzer import LLMAnalyzer
-from analysis.reachability import BaseReachabilityAnalyzer
 from analysis.code_context import CodeContextProvider
 from analysis.rules import analyze_finding
 from core.models import TriageAction, TriageResult
@@ -33,8 +32,6 @@ class TriageEngine:
         vector_store: VectorStore,
         llm_client: LLMClient,
         dd_base_url: str = "",
-        reachability_analyzer: Optional[BaseReachabilityAnalyzer] = None,
-        source_root: Optional[str] = None,
         code_context_provider: Optional[CodeContextProvider] = None,
         checker_llm_client: Optional[LLMClient] = None,
     ):
@@ -42,8 +39,6 @@ class TriageEngine:
         self.llm_analyzer = LLMAnalyzer(llm_client)
         self.checker_llm_analyzer = LLMAnalyzer(checker_llm_client) if checker_llm_client else None
         self.dd_base_url = dd_base_url.rstrip("/")
-        self.reachability = reachability_analyzer
-        self.source_root = source_root
         self.code_context = code_context_provider
 
     def triage(self, finding: Dict) -> TriageResult:
@@ -63,7 +58,8 @@ class TriageEngine:
         # Шаг 2 – Точный поиск metadata match
         cve = self._primary_cve(finding)
         component = finding.get("component_name")
-        result = self._stage_meta_match(finding, cve, component)
+        file_path = finding.get("file_path") if not cve else None
+        result = self._stage_meta_match(finding, cve, component, file_path)
         if result:
             return result
 
@@ -139,18 +135,20 @@ class TriageEngine:
         finding: Dict,
         cve: Optional[str],
         component: Optional[str],
+        file_path: Optional[str] = None,
     ) -> Optional[TriageResult]:
         """
         Шаг 2. Точный поиск по метаданным (CVE + компонент) в базе знаний.
+         - Если CVE отсутствует, поиск выполняется по file_path.
          - Если найдено точное совпадение, срабатывает триаж с высоким уровнем доверия.
          - Если совпадений нет, возвращает None для перехода к следующему этапу.
          - Этот этап позволяет быстро отсеивать известные ложные срабатывания на основе их идентификаторов и компонентов.
          - Важно, что для этого этапа требуется, чтобы база знаний была достаточно наполнена и актуальна, иначе он будет часто пропускать возможности для быстрого FP триажа.
          - Поэтому важно регулярно обогащать базу знаний новыми ложными срабатываниями и их метаданными из DefectDojo.
         """
-        if not cve and not component:
+        if not cve and not component and not file_path:
             return None
-        matches = self.store.search_by_meta(cve=cve, component_name=component)
+        matches = self.store.search_by_meta(cve=cve, component_name=component, file_path=file_path)
         if not matches:
             return None
         logger.info(
@@ -232,30 +230,15 @@ class TriageEngine:
             confidence,
         )
 
-        # Анализ достижимости для SAST находок (опционально) пока не тестировался
-        reach_note = ""
-        if self.reachability and finding.get("sast_source_file_path"):
-            reach = self.reachability.analyze(finding, self.source_root)
-            if reach.confidence > 0:
-                reach_label = "reachable" if reach.is_reachable else "not reachable"
-                reach_note = (
-                    f" [Reachability: {reach_label}, conf={reach.confidence:.2f}]"
-                )
-                logger.info("[%s] Stage 5 reachability: %s", finding.get("id"), reach_label)
-                # Unreachable sink → upgrade to FP and lower confidence slightly
-                if not reach.is_reachable and reach.confidence >= 0.7:
-                    verdict = "false-positive"
-                    confidence = round(min(confidence, 0.75), 3)
-
         return TriageResult(
             finding_id=finding["id"],
             action=TriageAction.LLM_ANALYSIS,
             verdict=verdict,
             confidence=confidence,
-            explanation=explanation + reach_note,
+            explanation=explanation,
             dd_comment=(
                 f"[LLM Triage] {verdict} "
-                f"(confidence={confidence:.2f}): {explanation}{reach_note}"
+                f"(confidence={confidence:.2f}): {explanation}"
             ),
         )
 

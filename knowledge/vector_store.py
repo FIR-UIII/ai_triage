@@ -145,14 +145,16 @@ class VectorStore:
         self,
         cve: Optional[str],
         component_name: Optional[str],
+        file_path: Optional[str] = None,
         n_results: int = 5,
     ) -> List[Dict]:
         """
-        Точный поиск по метаданным CVE и/или имени компонента. Возвращает список записей, которые точно соответствуют 
+        Точный поиск по метаданным CVE и/или имени компонента. Возвращает список записей, которые точно соответствуют
         заданным метаданным. Если оба параметра указаны, возвращаются записи, которые соответствуют обоим условиям.
         Если ни один из параметров не указан, возвращается пустой список.
+        Если CVE не задан, поиск производится по file_path.
         """
-        if not cve and not component_name:
+        if not cve and not component_name and not file_path:
             return []
 
         conditions = []
@@ -160,6 +162,8 @@ class VectorStore:
             conditions.append({"cve": {"$eq": cve}})
         if component_name:
             conditions.append({"component_name": {"$eq": component_name}})
+        if file_path:
+            conditions.append({"file_path": {"$eq": file_path}})
 
         where = {"$and": conditions} if len(conditions) > 1 else conditions[0]
 

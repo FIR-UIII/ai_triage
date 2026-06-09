@@ -59,6 +59,11 @@ def _setup_logging(level: str = "INFO") -> None:
     )
     root.addHandler(console_handler)
 
+    # Выключаем логи OpenAI SDK
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 
 def _load_settings():
     from config.settings import Settings
