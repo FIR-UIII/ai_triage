@@ -126,3 +126,22 @@ Batches: 100%|##########| 1/1 [00:00<00:00, 59.84it/s]
 Batches: 100%|##########| 1/1 [00:00<00:00, 60.23it/s]
 
 # Добавить функционал подготовки датасета для дообучения в формате ChatML
+
+# Добавить функционал запуска enrich и triage с флагом --product-id или -p 
+Сценарий должен работать для команд 
+python main.py enrich --product-id 15540 --dry-run
+python main.py enrich --product-id 15540
+python main.py triage --product-id 15540
+python main.py triage -product-id 15540 --post-comments
+python main.py triage -product-id 15540 --cache ./cache/findings_15540.json
+python main.py triage --product-id 15540 --output ./results/sca_15540.jsonl
+python main.py triage -product-id 15540 --false-positive
+
+В таком сценарии должен быть выполнен запрос по api но осущесвить поиск активных сработок по имени продукта
+https://{dd-url}/api/v2/products/?name=Vault-6631. 
+В ответе будет ключ results, где для работы нужно будет скачивать сработки из findings_list
+"results": [
+    {
+      "id": 2368,
+      "findings_count": 25,
+      "findings_list": [3589807, 3589808, 3589810, 3589827, 3571936, 3571939, 2802839, 2802841, 2802917, 2802919, 2802786, 2802788, 2802792, 2802790, 1653899, 2802925, 2802927, 1653989, 1653961, 1653953, 1654040, 1654042, 1654054, 1654052, 1654048]}]
