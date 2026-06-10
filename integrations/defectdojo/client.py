@@ -160,6 +160,42 @@ class DefectDojoClient:
         )
         return findings
 
+    def fetch_findings_by_product_id(self, product_id: int) -> List[Dict]:
+        """
+        Скачивает активные не-FP findings по product_id.
+        Фильтры: active=True, false_p=False, test__engagement__product=product_id
+        """
+        url = f"{self.api_url}/api/v2/findings/"
+        params = {
+            "test__engagement__product": product_id,
+            "false_p": False,
+            "active": True,
+        }
+        logger.debug("fetch_findings_by_product_id: product_id=%d, params=%s", product_id, params)
+        findings = self._paginate(url, params=params)
+        for f in findings:
+            self._dedup_vulnerability_ids(f)
+        logger.info("Fetched %d findings for product_id %d", len(findings), product_id)
+        return findings
+
+    def fetch_false_positives_by_product_id(self, product_id: int) -> List[Dict]:
+        """
+        Скачивает False Positive findings по product_id.
+        Фильтры: false_p=True, active=False, test__engagement__product=product_id
+        """
+        url = f"{self.api_url}/api/v2/findings/"
+        params = {
+            "test__engagement__product": product_id,
+            "false_p": True,
+            "active": False,
+        }
+        logger.debug("fetch_false_positives_by_product_id: product_id=%d, params=%s", product_id, params)
+        findings = self._paginate(url, params=params)
+        for f in findings:
+            self._dedup_vulnerability_ids(f)
+        logger.info("Fetched %d false positives for product_id %d", len(findings), product_id)
+        return findings
+
     def get_test_name(self, test_id: int) -> Optional[str]:
         try:
             data = self._get(f"{self.api_url}/api/v2/tests/{test_id}/")

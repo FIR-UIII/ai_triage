@@ -19,6 +19,11 @@
    - [Вариант C: llama-server (llama.cpp HTTP)](#вариант-c-llama-server-llamacpp-http)
 7. [Векторная база знаний (RAG / ChromaDB)](#векторная-база-знаний-rag--chromadb)
 8. [CLI-команды](#cli-команды)
+   - [enrich](#enrich---обогащение-векторной-базы-знаний-rag--chromadb)
+   - [triage](#triage--триаж-сработок)
+   - [dataset](#dataset--подготовка-датасета-для-дообучения)
+   - [bench](#bench---проверка-эффективности-работы)
+   - [fetch](#fetch--скачать-findings-в-файл)
 9. [Пайплайн триажа (6 стадий)](#пайплайн-триажа-6-стадий)
 10. [Модуль обогащения знаний](#модуль-обогащения-знаний)
 11. [Анализ достижимости (Reachability)](#анализ-достижимости-reachability)
@@ -289,10 +294,21 @@ LLM_API_KEY=none
 Если БД будет пустой или недостаточно насыщена контекстом что считать false-positive то результат триажа будет 
 в большей части бесполезен. Т.к. модель не будет знать что относить к таким сработкам и намеренно выдавать статус need-review т.е. нужно проведение ручной проверки.
 
+```
+Options:
+  -t, --test-id     INT  ID теста DefectDojo       )
+  -p, --product-id  INT  ID продукта DefectDojo    ) обязателен один из двух
+      --dry-run          предпросмотр без записи в RAG
+```
+
 ```bash
-### Автоматическое наполнение из DefectDojo
+### Обогащение по test-id (классический способ)
 python main.py enrich --test-id 1234 --dry-run # предпросмотр без записи в RAG
 python main.py enrich --test-id 1234           # с записью в RAG
+
+### Обогащение по product-id (все FP findings продукта за все тесты)
+python main.py enrich --product-id 15540 --dry-run
+python main.py enrich --product-id 15540
 
 # Пример вывода:
 ```json
@@ -342,28 +358,28 @@ store.add_entry(KnowledgeEntry(
 
 ```
 Options:
-  -t, --test-id    INT   id теста DefectDojo [обязательный]
-  -c, --cache      PATH  файла для создания кеша (создаётся автоматически)
-  -o, --output     PATH  файл с результатами (по умолчанию пишет в ./output/triage_<id>.jsonl)
-  -fp,--false-positive   фильтровать результат (в output будут записана только размеченные как FP)
-      --post-comments    записать результат как комментарий в DD
+  -t, --test-id     INT   ID теста DefectDojo        )
+  -p, --product-id  INT   ID продукта DefectDojo     ) обязателен один из двух
+  -c, --cache       PATH  файл кеша (создаётся автоматически)
+  -o, --output      PATH  файл с результатами (по умолчанию ./output/triage_<id>.jsonl)
+  -fp,--false-positive    фильтровать результат — в output попадут только FP
+      --post-comments     записать результат как комментарий в DD
 ```
 
 ```bash
-# Базовый запуск
+# Триаж по test-id (классический способ)
 python main.py triage --test-id 15540
-
-# С автокомментированием в DefectDojo
 python main.py triage --test-id 15540 --post-comments
-
-# Из готового кеша (без обращения к API DD)
 python main.py triage --test-id 15540 --cache ./cache/findings_15540.json
-
-# Указать путь к результатам
 python main.py triage --test-id 15540 --output ./results/sca_15540.jsonl
-
-# Вывести в результат только false-positive
 python main.py triage --test-id 15540 --false-positive
+
+# Триаж по product-id (все активные сработки продукта за все тесты)
+python main.py triage --product-id 15540
+python main.py triage --product-id 15540 --post-comments
+python main.py triage --product-id 15540 --cache ./cache/findings_product_15540.json
+python main.py triage --product-id 15540 --output ./results/sca_product_15540.jsonl
+python main.py triage --product-id 15540 --false-positive
 
 # Ожидаемое поведение в процессе выполнения:
 # Пишется лог без ошибок ERROR
@@ -398,6 +414,49 @@ slot      release: id  3 | task 0 | stop processing: n_tokens = 1016, truncated 
 srv  update_slots: all slots are idle
 srv  log_server_r: done request: POST /v1/chat/completions 127.0.0.1 200
 ```
+
+### dataset — подготовка датасета для дообучения
+
+Конвертирует результаты триажа (JSONL из команды `triage`) в формат **ChatML** для файнтюнинга LLM.
+Каждая сработка превращается в пример `{messages: [system, user, assistant]}`, где:
+- `system` — статический промпт аналитика без RAG-контекста (модель учится рассуждать по данным сработки)
+- `user` — нормализованные поля сработки в JSON
+- `assistant` — результат триажа: `{"verdict": ..., "confidence": ..., "explanation": ...}`
+
+```
+Options:
+  -i, --input          PATH  JSONL с результатами триажа [обязательный]
+  -o, --output         PATH  выходной ChatML JSONL [по умолчанию: <input>_chatml.jsonl]
+      --only-fp              включить только false-positive примеры
+      --only-reviewed        включить только needs-review примеры
+```
+
+```bash
+# Базовый экспорт — все сработки
+python main.py dataset --input ./output/triage_15540.jsonl
+
+# Указать путь к выходному файлу
+python main.py dataset --input ./output/triage_15540.jsonl --output ./finetune/train.jsonl
+
+# Только подтверждённые false-positive (качественные обучающие примеры)
+python main.py dataset --input ./output/triage_15540.jsonl --only-fp
+
+# Только needs-review (для обучения на граничных случаях)
+python main.py dataset --input ./output/triage_15540.jsonl --only-reviewed
+```
+
+Пример одной записи в выходном файле:
+```json
+{
+  "messages": [
+    {"role": "system", "content": "You are an expert application security engineer..."},
+    {"role": "user",   "content": "Analyse this security finding:\n{\"id\": 2858280, \"title\": \"...\", ...}"},
+    {"role": "assistant", "content": "{\"verdict\": \"false-positive\", \"confidence\": 0.9, \"explanation\": \"...\"}"}
+  ]
+}
+```
+
+---
 
 ### bench - проверка эффективности работы 
 Цель сравнить статус как был закрыт finding по итогу окончания триажа когда были проведен ручной анализ кода человеком. 

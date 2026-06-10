@@ -148,6 +148,38 @@ class KnowledgeEnricher:
         return stats
 
 
+    def enrich_from_product_id(self, product_id: int, dry_run: bool = False) -> Dict:
+        """
+        Обогащение базы знаний на основе ложных срабатываний по product_id.
+        """
+        stats = {
+            "fetched": 0,
+            "processed": 0,
+            "added": 0,
+            "skipped_duplicate": 0,
+            "skipped_no_reason": 0,
+            "errors": 0,
+        }
+
+        logger.debug("enrich_from_product_id: fetching FPs for product_id=%d ...", product_id)
+        fps = self.dd.fetch_false_positives_by_product_id(product_id)
+        stats["fetched"] = len(fps)
+        logger.info("Enriching from %d false positives (product_id=%d)", len(fps), product_id)
+
+        for i, finding in enumerate(fps, 1):
+            stats["processed"] += 1
+            finding_id = finding.get("id")
+            logger.debug("enrich_from_product_id: processing finding %d/%d (id=%s) ...",
+                    i, len(fps), finding_id)
+            try:
+                self._process_one(finding, stats, dry_run)
+            except Exception as e:
+                logger.error("Error processing finding %s: %s", finding_id, e)
+                stats["errors"] += 1
+
+        logger.info("Enrichment complete: %s", stats)
+        return stats
+
     def _process_one(self, finding: Dict, stats: Dict, dry_run: bool) -> None:
         """
         Обрабатывает одно ложное срабатывание, извлекая причину и добавляя запись в базу знаний

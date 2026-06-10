@@ -59,10 +59,11 @@ def _setup_logging(level: str = "INFO") -> None:
     )
     root.addHandler(console_handler)
 
-    # Выключаем логи OpenAI SDK
+    # Выключаем логи OpenAI SDK и sentence_transformers (иначе tqdm печатает "Batches: 100%...")
     logging.getLogger("openai").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 
 
 def _load_settings():
@@ -145,9 +146,30 @@ def _load_or_fetch(dd_client, test_id: int, cache_file: str, logger) -> list:
     return findings
 
 
+def _load_or_fetch_product(dd_client, product_id: int, cache_file: str, logger) -> list:
+    """
+    Аналог _load_or_fetch, но для product_id. Загружает findings из кеша или скачивает по product_id.
+    """
+    cache_path = Path(cache_file)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if cache_path.exists():
+        with open(cache_path, "r", encoding="utf-8") as f:
+            findings = json.load(f)
+        logger.info("Loaded %d findings from cache: %s", len(findings), cache_file)
+        return findings
+
+    findings = dd_client.fetch_findings_by_product_id(product_id=product_id)
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(findings, f, ensure_ascii=False, indent=2)
+    logger.info("Fetched and cached %d findings to: %s", len(findings), cache_file)
+    return findings
+
+
 @app.command()
 def triage(
-    test_id: int = typer.Option(..., "--test-id", "-t", help="DefectDojo test ID"),
+    test_id: Optional[int] = typer.Option(None, "--test-id", "-t", help="DefectDojo test ID"),
+    product_id: Optional[int] = typer.Option(None, "--product-id", "-p", help="DefectDojo product ID"),
     cache_file: Optional[str] = typer.Option(
         None, "--cache", "-c", help="Path to findings cache JSON (auto-created if absent)"
     ),
@@ -167,18 +189,30 @@ def triage(
     """
     Команда для триажа findings, я не знаю как это работает, наверное магия AI =)
     """
+    if not test_id and not product_id:
+        typer.echo("Укажите --test-id или --product-id")
+        raise typer.Exit(1)
+    if test_id and product_id:
+        typer.echo("Укажите только один из флагов: --test-id или --product-id")
+        raise typer.Exit(1)
+
     settings = _load_settings()
     _setup_logging(settings.log_level)
     logger = logging.getLogger(__name__)
 
-    cache = cache_file or f"{settings.cache_dir}/findings_{test_id}.json"
-    output = output_file or f"{settings.output_dir}/triage_{test_id}.jsonl"
-    Path(output).parent.mkdir(parents=True, exist_ok=True)
+    dd = _build_dd_client(settings)
+    engine = _build_engine(settings, repo_path=repo)
 
-    dd = _build_dd_client(settings) # загружаем класс DD
-    engine = _build_engine(settings, repo_path=repo) # загружаем класс TriageEngine
-
-    findings = _load_or_fetch(dd, test_id, cache, logger) # загрузка finding по test id для триажа
+    if product_id:
+        cache = cache_file or f"{settings.cache_dir}/findings_product_{product_id}.json"
+        output = output_file or f"{settings.output_dir}/triage_product_{product_id}.jsonl"
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+        findings = _load_or_fetch_product(dd, product_id, cache, logger)
+    else:
+        cache = cache_file or f"{settings.cache_dir}/findings_{test_id}.json"
+        output = output_file or f"{settings.output_dir}/triage_{test_id}.jsonl"
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+        findings = _load_or_fetch(dd, test_id, cache, logger)
 
     # статистика
     fp_count = 0
@@ -207,8 +241,11 @@ def triage(
 
 @app.command()
 def enrich(
-    test_id: int = typer.Option(
-        ..., "--test-id", "-t", help="DefectDojo test ID"
+    test_id: Optional[int] = typer.Option(
+        None, "--test-id", "-t", help="DefectDojo test ID"
+    ),
+    product_id: Optional[int] = typer.Option(
+        None, "--product-id", "-p", help="DefectDojo product ID"
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Preview changes without writing to knowledge base"
@@ -217,12 +254,18 @@ def enrich(
     """
     Команда для обогащения базы знаний на основе закрытых false-positive findings.
     """
+    if not test_id and not product_id:
+        typer.echo("Укажите --test-id или --product-id")
+        raise typer.Exit(1)
+    if test_id and product_id:
+        typer.echo("Укажите только один из флагов: --test-id или --product-id")
+        raise typer.Exit(1)
+
     settings = _load_settings()
     _setup_logging(settings.log_level)
     logger = logging.getLogger(__name__)
 
     logger.debug("enrich: settings loaded, embedding_model=%s", settings.embedding_model)
-    logger.debug("enrich: dry_run=%s, test_id=%d", dry_run, test_id)
 
     from knowledge.enrichment import KnowledgeEnricher
 
@@ -246,7 +289,12 @@ def enrich(
     )
 
     logger.debug("enrich: starting enrichment pipeline ...")
-    stats = enricher.enrich_from_product(test_id=test_id, dry_run=dry_run)
+    if product_id:
+        logger.debug("enrich: dry_run=%s, product_id=%d", dry_run, product_id)
+        stats = enricher.enrich_from_product_id(product_id=product_id, dry_run=dry_run)
+    else:
+        logger.debug("enrich: dry_run=%s, test_id=%d", dry_run, test_id)
+        stats = enricher.enrich_from_product(test_id=test_id, dry_run=dry_run)
     logger.debug("enrich: pipeline complete")
     typer.echo(json.dumps(stats, indent=2))
 
@@ -361,6 +409,93 @@ def bench(
     typer.echo(f"  Всего сравнений: {total_compared}")
     typer.echo(f"  Верно:   {correct} ({correct_pct:.1f}%)")
     typer.echo(f"  Неверно: {incorrect} ({incorrect_pct:.1f}%)")
+
+
+@app.command()
+def dataset(
+    input_file: str = typer.Option(
+        ..., "--input", "-i", help="Path to triage results JSONL (output of the triage command)"
+    ),
+    output_file: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Output ChatML JSONL file path"
+    ),
+    only_fp: bool = typer.Option(
+        False, "--only-fp", help="Include only false-positive findings"
+    ),
+    only_reviewed: bool = typer.Option(
+        False, "--only-reviewed", help="Include only needs-review findings"
+    ),
+) -> None:
+    """
+    Подготовка датасета для дообучения модели в формате ChatML из результатов триажа.
+    Каждая строка входного JSONL превращается в пример {messages: [system, user, assistant]}.
+    """
+    from analysis.llm_analyzer import _LLM_FINDING_FIELDS, _SYSTEM_PROMPT
+
+    settings = _load_settings()
+    _setup_logging(settings.log_level)
+    logger = logging.getLogger(__name__)
+
+    input_path = Path(input_file)
+    if not input_path.exists():
+        typer.echo(f"Input file not found: {input_file}")
+        raise typer.Exit(1)
+
+    output = output_file or str(input_path.with_stem(input_path.stem + "_chatml"))
+    Path(output).parent.mkdir(parents=True, exist_ok=True)
+
+    # Статический системный промпт без RAG/code-context — модель учится рассуждать по данным сработки
+    static_system = _SYSTEM_PROMPT.format(
+        rag_context="No prior false-positive context available for this finding.",
+        code_context_block="",
+    )
+
+    written = 0
+    skipped = 0
+
+    with open(input_path, "r", encoding="utf-8") as inp, \
+         open(output, "w", encoding="utf-8") as out:
+        for line in inp:
+            line = line.strip()
+            if not line:
+                continue
+            finding = json.loads(line)
+            triage_result = finding.get("triage_result") or {}
+            verdict = triage_result.get("verdict", "")
+
+            if only_fp and verdict != "false-positive":
+                skipped += 1
+                continue
+            if only_reviewed and verdict != "needs-review":
+                skipped += 1
+                continue
+            if not verdict:
+                skipped += 1
+                continue
+
+            normalized = {k: finding[k] for k in _LLM_FINDING_FIELDS if k in finding and finding[k] is not None}
+            user_content = "Analyse this security finding:\n" + json.dumps(normalized, ensure_ascii=False, indent=2)
+            assistant_content = json.dumps(
+                {
+                    "verdict": triage_result.get("verdict"),
+                    "confidence": triage_result.get("confidence"),
+                    "explanation": triage_result.get("explanation"),
+                },
+                ensure_ascii=False,
+            )
+
+            record = {
+                "messages": [
+                    {"role": "system", "content": static_system},
+                    {"role": "user", "content": user_content},
+                    {"role": "assistant", "content": assistant_content},
+                ]
+            }
+            out.write(json.dumps(record, ensure_ascii=False) + "\n")
+            written += 1
+
+    logger.info("dataset: written=%d skipped=%d -> %s", written, skipped, output)
+    typer.echo(f"Записано примеров: {written}, пропущено: {skipped}\nФайл: {output}")
 
 
 @app.command()
