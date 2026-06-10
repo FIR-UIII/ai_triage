@@ -201,7 +201,7 @@ def triage(
                 dd.add_comment(finding["id"], result.dd_comment)
 
     typer.echo(
-        f"Успешно выполнено. \n К ложным сработкам отнесено: {fp_count} \n Требуют ручного анализа {review_count} \n Файл с результатами → {output}"
+        f"Успешно выполнено. \n К ложным сработкам отнесено: {fp_count} \n Требуют ручного анализа {review_count} \n Файл с результатами {output}"
     )
 
 

@@ -1,3 +1,7 @@
+ cd C:\gitlab\
+ git config --global --add safe.directory "*"
+ .\gitlab-runner.exe run
+
 Вариант 1: network_mode = "host" (для Linux-runner)
 Контейнер разделяет сетевой стек хоста — localhost внутри контейнера == localhost хоста. Ничего в коде менять не нужно, LLM_API_BASE_URL=http://localhost:8080 просто работает.
 

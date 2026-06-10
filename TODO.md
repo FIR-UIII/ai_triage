@@ -119,3 +119,8 @@ Output
   "reason": "Potential SQL injection path remains reachable",
   "agreement_score": 0.42
 }
+
+# Убрать из логов или сделать на уровне debug (на этапе enrich)
+Batches: 100%|##########| 1/1 [00:00<00:00, 21.69it/s]
+Batches: 100%|##########| 1/1 [00:00<00:00, 59.84it/s]
+Batches: 100%|##########| 1/1 [00:00<00:00, 60.23it/s]

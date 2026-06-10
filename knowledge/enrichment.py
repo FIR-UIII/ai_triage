@@ -144,7 +144,6 @@ class KnowledgeEnricher:
                 logger.debug("enrich_from_product: ERROR on finding %s: %s", finding_id, e)
                 stats["errors"] += 1
 
-        logger.debug("enrich_from_product: DONE, stats=%s", stats)
         logger.info("Enrichment complete: %s", stats)
         return stats
 
@@ -210,7 +209,7 @@ class KnowledgeEnricher:
 
         if dry_run:
             logger.debug("  _process_one(%s): [DRY RUN] would add entry", finding_id)
-            logger.info("[DRY RUN] Would add entry for finding %s: %s", finding_id, document[:80])
+            logger.debug("[DRY RUN] Would add entry for finding %s: %s", finding_id, document[:80])
             stats["added"] += 1
         elif self.store.add_entry(entry):
             logger.debug("  _process_one(%s): entry added", finding_id)
