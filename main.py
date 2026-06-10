@@ -146,9 +146,9 @@ def _load_or_fetch(dd_client, test_id: int, cache_file: str, logger) -> list:
     return findings
 
 
-def _load_or_fetch_product(dd_client, product_id: int, cache_file: str, logger) -> list:
+def _load_or_fetch_product(dd_client, product_name: str, cache_file: str, logger) -> list:
     """
-    Аналог _load_or_fetch, но для product_id. Загружает findings из кеша или скачивает по product_id.
+    Аналог _load_or_fetch, но для product_name. Загружает findings из кеша или скачивает по имени продукта.
     """
     cache_path = Path(cache_file)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,7 +159,7 @@ def _load_or_fetch_product(dd_client, product_id: int, cache_file: str, logger) 
         logger.info("Loaded %d findings from cache: %s", len(findings), cache_file)
         return findings
 
-    findings = dd_client.fetch_findings_by_product_id(product_id=product_id)
+    findings = dd_client.fetch_findings_by_product_name(product_name=product_name)
     with open(cache_path, "w", encoding="utf-8") as f:
         json.dump(findings, f, ensure_ascii=False, indent=2)
     logger.info("Fetched and cached %d findings to: %s", len(findings), cache_file)
@@ -169,7 +169,7 @@ def _load_or_fetch_product(dd_client, product_id: int, cache_file: str, logger) 
 @app.command()
 def triage(
     test_id: Optional[int] = typer.Option(None, "--test-id", "-t", help="DefectDojo test ID"),
-    product_id: Optional[int] = typer.Option(None, "--product-id", "-p", help="DefectDojo product ID"),
+    product_name: Optional[str] = typer.Option(None, "--product-name", "-p", help="DefectDojo product name"),
     cache_file: Optional[str] = typer.Option(
         None, "--cache", "-c", help="Path to findings cache JSON (auto-created if absent)"
     ),
@@ -189,11 +189,11 @@ def triage(
     """
     Команда для триажа findings, я не знаю как это работает, наверное магия AI =)
     """
-    if not test_id and not product_id:
-        typer.echo("Укажите --test-id или --product-id")
+    if not test_id and not product_name:
+        typer.echo("Укажите --test-id или --product-name")
         raise typer.Exit(1)
-    if test_id and product_id:
-        typer.echo("Укажите только один из флагов: --test-id или --product-id")
+    if test_id and product_name:
+        typer.echo("Укажите только один из флагов: --test-id или --product-name")
         raise typer.Exit(1)
 
     settings = _load_settings()
@@ -203,11 +203,12 @@ def triage(
     dd = _build_dd_client(settings)
     engine = _build_engine(settings, repo_path=repo)
 
-    if product_id:
-        cache = cache_file or f"{settings.cache_dir}/findings_product_{product_id}.json"
-        output = output_file or f"{settings.output_dir}/triage_product_{product_id}.jsonl"
+    if product_name:
+        safe_name = product_name.replace(" ", "_")
+        cache = cache_file or f"{settings.cache_dir}/findings_product_{safe_name}.json"
+        output = output_file or f"{settings.output_dir}/triage_product_{safe_name}.jsonl"
         Path(output).parent.mkdir(parents=True, exist_ok=True)
-        findings = _load_or_fetch_product(dd, product_id, cache, logger)
+        findings = _load_or_fetch_product(dd, product_name, cache, logger)
     else:
         cache = cache_file or f"{settings.cache_dir}/findings_{test_id}.json"
         output = output_file or f"{settings.output_dir}/triage_{test_id}.jsonl"
@@ -244,8 +245,8 @@ def enrich(
     test_id: Optional[int] = typer.Option(
         None, "--test-id", "-t", help="DefectDojo test ID"
     ),
-    product_id: Optional[int] = typer.Option(
-        None, "--product-id", "-p", help="DefectDojo product ID"
+    product_name: Optional[str] = typer.Option(
+        None, "--product-name", "-p", help="DefectDojo product name"
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Preview changes without writing to knowledge base"
@@ -254,11 +255,11 @@ def enrich(
     """
     Команда для обогащения базы знаний на основе закрытых false-positive findings.
     """
-    if not test_id and not product_id:
-        typer.echo("Укажите --test-id или --product-id")
+    if not test_id and not product_name:
+        typer.echo("Укажите --test-id или --product-name")
         raise typer.Exit(1)
-    if test_id and product_id:
-        typer.echo("Укажите только один из флагов: --test-id или --product-id")
+    if test_id and product_name:
+        typer.echo("Укажите только один из флагов: --test-id или --product-name")
         raise typer.Exit(1)
 
     settings = _load_settings()
@@ -289,9 +290,9 @@ def enrich(
     )
 
     logger.debug("enrich: starting enrichment pipeline ...")
-    if product_id:
-        logger.debug("enrich: dry_run=%s, product_id=%d", dry_run, product_id)
-        stats = enricher.enrich_from_product_id(product_id=product_id, dry_run=dry_run)
+    if product_name:
+        logger.debug("enrich: dry_run=%s, product_name=%r", dry_run, product_name)
+        stats = enricher.enrich_from_product_name(product_name=product_name, dry_run=dry_run)
     else:
         logger.debug("enrich: dry_run=%s, test_id=%d", dry_run, test_id)
         stats = enricher.enrich_from_product(test_id=test_id, dry_run=dry_run)

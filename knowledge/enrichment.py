@@ -148,9 +148,9 @@ class KnowledgeEnricher:
         return stats
 
 
-    def enrich_from_product_id(self, product_id: int, dry_run: bool = False) -> Dict:
+    def enrich_from_product_name(self, product_name: str, dry_run: bool = False) -> Dict:
         """
-        Обогащение базы знаний на основе ложных срабатываний по product_id.
+        Обогащение базы знаний на основе ложных срабатываний по имени продукта.
         """
         stats = {
             "fetched": 0,
@@ -161,15 +161,15 @@ class KnowledgeEnricher:
             "errors": 0,
         }
 
-        logger.debug("enrich_from_product_id: fetching FPs for product_id=%d ...", product_id)
-        fps = self.dd.fetch_false_positives_by_product_id(product_id)
+        logger.debug("enrich_from_product_name: fetching FPs for product_name=%r ...", product_name)
+        fps = self.dd.fetch_false_positives_by_product_name(product_name)
         stats["fetched"] = len(fps)
-        logger.info("Enriching from %d false positives (product_id=%d)", len(fps), product_id)
+        logger.info("Enriching from %d false positives (product_name=%r)", len(fps), product_name)
 
         for i, finding in enumerate(fps, 1):
             stats["processed"] += 1
             finding_id = finding.get("id")
-            logger.debug("enrich_from_product_id: processing finding %d/%d (id=%s) ...",
+            logger.debug("enrich_from_product_name: processing finding %d/%d (id=%s) ...",
                     i, len(fps), finding_id)
             try:
                 self._process_one(finding, stats, dry_run)

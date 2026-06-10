@@ -296,8 +296,8 @@ LLM_API_KEY=none
 
 ```
 Options:
-  -t, --test-id     INT  ID теста DefectDojo       )
-  -p, --product-id  INT  ID продукта DefectDojo    ) обязателен один из двух
+  -t, --test-id       INT  ID теста DefectDojo       )
+  -p, --product-name  STR  ID продукта DefectDojo    ) обязателен один из двух
       --dry-run          предпросмотр без записи в RAG
 ```
 
@@ -306,9 +306,9 @@ Options:
 python main.py enrich --test-id 1234 --dry-run # предпросмотр без записи в RAG
 python main.py enrich --test-id 1234           # с записью в RAG
 
-### Обогащение по product-id (все FP findings продукта за все тесты)
-python main.py enrich --product-id 15540 --dry-run
-python main.py enrich --product-id 15540
+### Обогащение по product-name (все FP findings продукта за все тесты)
+python main.py enrich --product-name vault --dry-run
+python main.py enrich --product-name vault
 
 # Пример вывода:
 ```json
@@ -358,10 +358,10 @@ store.add_entry(KnowledgeEntry(
 
 ```
 Options:
-  -t, --test-id     INT   ID теста DefectDojo        )
-  -p, --product-id  INT   ID продукта DefectDojo     ) обязателен один из двух
-  -c, --cache       PATH  файл кеша (создаётся автоматически)
-  -o, --output      PATH  файл с результатами (по умолчанию ./output/triage_<id>.jsonl)
+  -t, --test-id      INT   ID теста DefectDojo        )
+  -p, --product-name STR   ID продукта DefectDojo     ) обязателен один из двух
+  -c, --cache        PATH  файл кеша (создаётся автоматически)
+  -o, --output       PATH  файл с результатами (по умолчанию ./output/triage_<id>.jsonl)
   -fp,--false-positive    фильтровать результат — в output попадут только FP
       --post-comments     записать результат как комментарий в DD
 ```
@@ -374,12 +374,12 @@ python main.py triage --test-id 15540 --cache ./cache/findings_15540.json
 python main.py triage --test-id 15540 --output ./results/sca_15540.jsonl
 python main.py triage --test-id 15540 --false-positive
 
-# Триаж по product-id (все активные сработки продукта за все тесты)
-python main.py triage --product-id 15540
-python main.py triage --product-id 15540 --post-comments
-python main.py triage --product-id 15540 --cache ./cache/findings_product_15540.json
-python main.py triage --product-id 15540 --output ./results/sca_product_15540.jsonl
-python main.py triage --product-id 15540 --false-positive
+# Триаж по product-name (все активные сработки продукта за все тесты)
+python main.py triage --product-name vault
+python main.py triage --product-name vault --post-comments
+python main.py triage --product-name vault --cache ./cache/findings_product_vault.json
+python main.py triage --product-name vault --output ./results/sca_product_vault.jsonl
+python main.py triage --product-name vault --false-positive
 
 # Ожидаемое поведение в процессе выполнения:
 # Пишется лог без ошибок ERROR
