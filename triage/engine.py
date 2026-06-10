@@ -204,16 +204,28 @@ class TriageEngine:
          - Формирует системный промпт, который включает правила и шаблоны для модели, а также RAG-контекст из базы знаний.
          - Вызывает LLM для получения вердикта о том является ли сработка ложным срабатыванием или требует ручной проверки.
         """
-        # Build RAG context: try rule-specific first, then text similarity
-        rule_key = finding.get("title", "")
-        rag_context = self.store.search_by_rule(rule_key, n_results=3)
+        # Build RAG context: file_path first, then rule-specific, then text similarity
+        file_path = finding.get("file_path")
+        if file_path:
+            fp_matches = self.store.search_by_meta(cve=None, component_name=None, file_path=file_path)
+            if fp_matches:
+                logger.debug("[%s] Stage 4 RAG: %d entries by file_path", finding.get("id"), len(fp_matches))
+                rag_context = [m["document"] for m in fp_matches]
+            else:
+                rag_context = []
+        else:
+            rag_context = []
+
         if not rag_context:
-            # Fallback: semantic search for context
-            cve = self._primary_cve(finding)
-            ctx_results = self.store.search_by_similarity(
-                cve or rule_key, n_results=3, threshold=0.5
-            )
-            rag_context = [r["document"] for r in ctx_results]
+            rule_key = finding.get("title", "")
+            rag_context = self.store.search_by_rule(rule_key, n_results=3)
+            if not rag_context:
+                # Fallback: semantic search for context
+                cve = self._primary_cve(finding)
+                ctx_results = self.store.search_by_similarity(
+                    cve or rule_key, n_results=3, threshold=0.5
+                )
+                rag_context = [r["document"] for r in ctx_results]
 
         llm_result = self.llm_analyzer.analyze(finding, rag_context, code_context=self._get_code_context(finding))
         if not llm_result:
