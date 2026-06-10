@@ -70,7 +70,7 @@ Rules for verification:
 1. Check if the verdict is logically consistent with the explanation and finding data.
 2. If the explanation contradicts the verdict, flag this as a logical inconsistency.
 3. Assess confidence: is the level of confidence (0.0-1.0) justified by the explanation?
-4. There are no words in explanation: likely, possibly, seems, etc.
+4. There are no words in explanation: likely, possibly, presumably, seems, etc.
 5. If you find clear logical errors that would reverse the verdict, you MAY change it.
 6. Keep explanation concise (max 100 words), focusing on what changed and why.
 
