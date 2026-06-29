@@ -10,7 +10,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python dependencies first (layer is cached unless requirements.txt changes)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install CPU-only torch BEFORE requirements to prevent pip from pulling the
+# full CUDA variant (~2.5 GB) as a transitive dep of sentence-transformers.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+RUN pip install --no-cache-dir -r requirements.txt \
+    # Strip test directories, dist-info, and compiled bytecode from site-packages
+    && find /usr/local/lib/python3.11/dist-packages -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true \
+    && find /usr/local/lib/python3.11/dist-packages -type d -name "test" -exec rm -rf {} + 2>/dev/null || true \
+    && find /usr/local/lib/python3.11/dist-packages -name "*.pyi" -delete 2>/dev/null || true \
+    && find /usr/local/lib/python3.11/dist-packages -name "*.dist-info" -type d -exec rm -rf {} + 2>/dev/null || true
 
 # Optional: local GGUF backend via llama.cpp
 # Usage: docker build --build-arg INCLUDE_LOCAL_LLM=true .
