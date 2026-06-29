@@ -127,3 +127,31 @@ Output
 triage\engine.py
     rule_key = finding.get("title", "")
     rag_context = self.store.search_by_rule(rule_key, n_results=3)
+
+# Docker size fix
+docker history ai-triage
+IMAGE          CREATED              CREATED BY                                      SIZE      COMMENT
+c1d84950b4c7   About a minute ago   CMD ["--help"]                                  0B        buildkit.dockerfile.v0
+<missing>      About a minute ago   ENTRYPOINT ["python" "main.py"]                 0B        buildkit.dockerfile.v0
+<missing>      About a minute ago   VOLUME [/app/rag/chroma_db_metadata /app/llm…   0B        buildkit.dockerfile.v0
+<missing>      About a minute ago   RUN |2 INCLUDE_LOCAL_LLM=false EMBEDDING_MOD…   0B        buildkit.dockerfile.v0
+<missing>      About a minute ago   COPY . . # buildkit                             10.6GB    buildkit.dockerfile.v0
+<missing>      About a minute ago   RUN |2 INCLUDE_LOCAL_LLM=false EMBEDDING_MOD…   93.3MB    buildkit.dockerfile.v0
+<missing>      About a minute ago   ARG EMBEDDING_MODEL=all-MiniLM-L6-v2            0B        buildkit.dockerfile.v0
+<missing>      About a minute ago   RUN |1 INCLUDE_LOCAL_LLM=false /bin/sh -c if…   0B        buildkit.dockerfile.v0
+<missing>      About a minute ago   ARG INCLUDE_LOCAL_LLM=false                     0B        buildkit.dockerfile.v0
+<missing>      About a minute ago   RUN /bin/sh -c pip install --no-cache-dir -r…   641MB     buildkit.dockerfile.v0
+<missing>      2 minutes ago        RUN /bin/sh -c pip install --no-cache-dir to…   868MB     buildkit.dockerfile.v0
+<missing>      3 minutes ago        COPY requirements.txt . # buildkit              463B      buildkit.dockerfile.v0
+<missing>      3 minutes ago        RUN /bin/sh -c apt-get update && apt-get ins…   175MB     buildkit.dockerfile.v0
+<missing>      3 minutes ago        WORKDIR /app                                    0B        buildkit.dockerfile.v0
+<missing>      5 days ago           CMD ["python3"]                                 0B        buildkit.dockerfile.v0
+<missing>      5 days ago           RUN /bin/sh -c set -eux;  for src in idle3 p…   36B       buildkit.dockerfile.v0
+<missing>      5 days ago           RUN /bin/sh -c set -eux;   savedAptMark="$(a…   42MB      buildkit.dockerfile.v0
+<missing>      5 days ago           ENV PYTHON_SHA256=272179ddd9a2e41a0fc8e42e33…   0B        buildkit.dockerfile.v0
+<missing>      5 days ago           ENV PYTHON_VERSION=3.11.15                      0B        buildkit.dockerfile.v0
+<missing>      5 days ago           ENV GPG_KEY=A035C8C19219BA821ECEA86B64E628F8…   0B        buildkit.dockerfile.v0
+<missing>      5 days ago           RUN /bin/sh -c set -eux;  apt-get update;  a…   3.81MB    buildkit.dockerfile.v0
+<missing>      5 days ago           ENV LANG=C.UTF-8                                0B        buildkit.dockerfile.v0
+<missing>      5 days ago           ENV PATH=/usr/local/bin:/usr/local/sbin:/usr…   0B        buildkit.dockerfile.v0
+<missing>      6 days ago           # debian.sh --arch 'amd64' out/ 'trixie' '@1…   78.6MB    debuerreotype 0.17
