@@ -1,51 +1,53 @@
 # syntax=docker/dockerfile:1
-FROM python:3.11-slim
 
-WORKDIR /app
+# ── Stage 1: builder (heavy deps, never shipped in final image) ───────────────
+FROM python:3.11-slim AS builder
 
-# System deps needed by some chromadb/onnxruntime native wheels
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
+RUN apt-get update && apt-get install -y --no-install-recommends gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies first (layer is cached unless requirements.txt changes)
+# Isolate all packages in a venv so they're trivially copyable to runtime stage
+RUN python -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+
 COPY requirements.txt .
 
-# Install CPU-only torch BEFORE requirements to prevent pip from pulling the
-# full CUDA variant (~2.5 GB) as a transitive dep of sentence-transformers.
+# CPU-only torch first – prevents sentence-transformers from pulling the ~2.5 GB CUDA variant
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
 RUN pip install --no-cache-dir -r requirements.txt \
-    && find /usr/local/lib/python3.11/site-packages -type d -name "tests" -exec rm -rf {} + 2>/dev/null; \
-       find /usr/local/lib/python3.11/site-packages -type d -name "test"  -exec rm -rf {} + 2>/dev/null; \
-       find /usr/local/lib/python3.11/site-packages -name "*.pyi" -delete 2>/dev/null; true
+    && find /venv/lib/python3.11/site-packages -type d -name "tests" -exec rm -rf {} + 2>/dev/null; \
+       find /venv/lib/python3.11/site-packages -type d -name "test"  -exec rm -rf {} + 2>/dev/null; \
+       find /venv/lib/python3.11/site-packages -name "*.pyi" -delete 2>/dev/null; true
 
-# Optional: local GGUF backend via llama.cpp
-# Usage: docker build --build-arg INCLUDE_LOCAL_LLM=true .
 ARG INCLUDE_LOCAL_LLM=false
 RUN if [ "$INCLUDE_LOCAL_LLM" = "true" ]; then \
         pip install --no-cache-dir --prefer-binary "llama-cpp-python==0.3.16"; \
     fi
 
-# Pre-download the embedding model so the container works offline at runtime.
-# Override with: docker build --build-arg EMBEDDING_MODEL=<hf-model-id> .
+# Pre-download embedding model into builder's HF cache
 ARG EMBEDDING_MODEL=all-MiniLM-L6-v2
 RUN TRANSFORMERS_OFFLINE=0 HF_HUB_OFFLINE=0 \
     python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('${EMBEDDING_MODEL}')" \
     && echo "Embedding model '${EMBEDDING_MODEL}' cached successfully"
 
-# Copy application source (excludes paths listed in .dockerignore)
+
+# ── Stage 2: runtime (lean – fresh overlay, no builder artifacts) ─────────────
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy the venv (packages) and HuggingFace model cache from builder
+COPY --from=builder /venv /venv
+COPY --from=builder /root/.cache /root/.cache
+
+ENV PATH="/venv/bin:$PATH"
+
+# Copy application source – this layer is now only ~3 MB
 COPY . .
 
-# Create runtime directories (volumes may override these at run-time)
 RUN mkdir -p cache output log
 
-# Persistent data – mount these as volumes to keep data between container runs:
-#   /app/rag/chroma_db_metadata  – ChromaDB vector store
-#   /app/llm                     – GGUF model files (local LLM mode only)
-#   /app/cache                   – findings JSON cache
-#   /app/output                  – triage result JSONL files
-#   /app/log                     – log files
 VOLUME ["/app/rag/chroma_db_metadata", "/app/llm", "/app/cache", "/app/output", "/app/log"]
 
 ENTRYPOINT ["python", "main.py"]
