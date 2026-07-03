@@ -15,6 +15,7 @@ import os
 from typing import Dict, List, Optional
 
 import chromadb
+from chromadb.config import Settings
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 from core.models import KnowledgeEntry
@@ -53,7 +54,12 @@ class VectorStore:
         logger.debug("Embedding model loaded OK")
 
         logger.debug("Opening ChromaDB PersistentClient at: %s", persist_directory)
-        self.client = chromadb.PersistentClient(path=persist_directory)
+        # Disable ChromaDB anonymized telemetry (PostHog) — avoids network
+        # retries/warnings when running offline (host us.i.posthog.com unreachable).
+        self.client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(anonymized_telemetry=False),
+        )
         logger.debug("ChromaDB client ready")
 
         # Open collection: try existing first (without embedding_function to
