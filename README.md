@@ -102,13 +102,13 @@ mkdir -p rag/chroma_db_metadata cache output log
 
 ```bash
 # Стандартная сборка — режим API (Ollama / llama-server / OpenAI-совместимый)
-docker build -t ai-triage .
+docker build -t ai-triage:{tag} .
 
-# С поддержкой локального GGUF-бекенда (llama-cpp-python, ~+300 МБ)
-docker build --build-arg INCLUDE_LOCAL_LLM=true -t ai-triage:local .
+# С поддержкой локального сервера LLM (llama-cpp-python, ~+300 МБ)
+docker build --build-arg INCLUDE_LOCAL_LLM=true -t ai-triage:{tag} .
 
 # С нестандартной эмбеддинг-моделью
-docker build --build-arg EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2 -t ai-triage .
+docker build --build-arg EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2 -t ai-triage:{tag} .
 ```
 
 > Первая сборка скачает зависимости (~2–3 ГБ) и эмбеддинг-модель `all-MiniLM-L6-v2` (~90 МБ).
