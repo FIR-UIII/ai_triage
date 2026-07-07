@@ -119,5 +119,3 @@ Output
   "reason": "Potential SQL injection path remains reachable",
   "agreement_score": 0.42
 }
-
-# Изменить уровень логгирования для логов [INFO] Added knowledge entry: fp_1646706_0e6cbaee65e0d588 для команды python main.py enrich -p на DEBUG

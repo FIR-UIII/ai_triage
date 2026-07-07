@@ -260,7 +260,7 @@ class VectorStore:
                 documents=[entry.document],
                 metadatas=[entry.to_chroma_metadata()],
             )
-            logger.info("Added knowledge entry: %s", entry.id)
+            logger.debug("Added knowledge entry: %s", entry.id)
             return True
         except Exception as e:
             logger.error("Failed to add entry %s: %s", entry.id, e)
