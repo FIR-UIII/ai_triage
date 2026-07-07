@@ -50,5 +50,4 @@ RUN mkdir -p cache output log
 
 VOLUME ["/app/rag/chroma_db_metadata", "/app/llm", "/app/cache", "/app/output", "/app/log"]
 
-ENTRYPOINT ["python", "main.py"]
-CMD ["--help"]
+CMD ["/bin/sh"]

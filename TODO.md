@@ -120,16 +120,4 @@ Output
   "agreement_score": 0.42
 }
 
-# нужно сделать проверку чтобы вначале из раг брался файл по file_path, если нет то по title
-"file_path": "/builds/source/gren-hrtech/record-team/record/podbor/backend/recruit-service/src/api/repository/ApplicationRepository.ts",
-"title": "app.rules.javascript.database.rules_lgpl_javascript_database_rule-node-nosqli-injection",
-
-triage\engine.py
-    rule_key = finding.get("title", "")
-    rag_context = self.store.search_by_rule(rule_key, n_results=3)
-
-# Убрать при вызове docker run --rm --env-file .env -v $(pwd)/rag/chroma_db_metadata:/app/rag/chroma_db_metadata ai-triage enrich --test-id 24851
-[WARNING] Retrying (Retry(total=1, connect=1, read=2, redirect=None, status=None)) after connection broken by 'NewConnectionError("HTTPSConnection(host='us.i.posthog.com', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable")': /batch/
-[WARNING] Retrying (Retry(total=0, connect=0, read=2, redirect=None, status=None)) after connection broken by 'NewConnectionError("HTTPSConnection(host='us.i.posthog.com', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable")': /batch/
-И аналогично в конце triage выполняется отправка данных
-# Убрать 
+# Изменить уровень логгирования для логов [INFO] Added knowledge entry: fp_1646706_0e6cbaee65e0d588 для команды python main.py enrich -p на DEBUG
