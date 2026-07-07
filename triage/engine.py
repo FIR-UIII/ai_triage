@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 from analysis.llm_analyzer import LLMAnalyzer
 from analysis.code_context import CodeContextProvider
 from analysis.rules import analyze_finding
+from analysis.skills import get_skill
 from core.models import TriageAction, TriageResult
 from knowledge.vector_store import VectorStore
 from llm_backend.client import LLMClient
@@ -71,8 +72,10 @@ class TriageEngine:
         # Шаг 4 – LLM
         result = self._stage_llm(finding)
         if result:
-            # Шаг 4.5 – Verification (optional)
-            result = self._stage_verification(finding, result, cve) or result
+            # Шаг 4.5 – Verification (optional): только для пограничных вердиктов,
+            # чтобы не тратить второй LLM-вызов на уверенные решения
+            if self._needs_verification(result):
+                result = self._stage_verification(finding, result, cve) or result
             return result
 
         # Шаг 6 – Fallback при отсутсвии результата
@@ -227,7 +230,14 @@ class TriageEngine:
                 )
                 rag_context = [r["document"] for r in ctx_results]
 
-        llm_result = self.llm_analyzer.analyze(finding, rag_context, code_context=self._get_code_context(finding))
+        skill = get_skill(finding)
+        logger.info("[%s] Stage 4 skill: %s", finding.get("id"), skill.category.value)
+        llm_result = self.llm_analyzer.analyze(
+            finding,
+            rag_context,
+            code_context=self._get_code_context(finding),
+            skill=skill,
+        )
         if not llm_result:
             return None
 
@@ -253,6 +263,20 @@ class TriageEngine:
                 f"(confidence={confidence:.2f}): {explanation}"
             ),
         )
+
+    @staticmethod
+    def _needs_verification(result: TriageResult) -> bool:
+        """
+        Определяет, стоит ли тратить второй LLM-вызов на верификацию вердикта.
+        Проверяем только пограничные случаи: неуверенный false-positive
+        (цена ошибки — пропущенная уязвимость) и likely-true-positive
+        (вердикт влияет на приоритизацию у аналитиков).
+        """
+        if result.verdict == "false-positive" and result.confidence < 0.75:
+            return True
+        if result.verdict == "likely-true-positive":
+            return True
+        return False
 
     def _stage_verification(
         self, finding: Dict, initial_result: TriageResult, cve: Optional[str]

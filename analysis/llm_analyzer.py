@@ -11,7 +11,12 @@ import logging
 import re
 from typing import Dict, List, Optional
 
+from analysis.skills import Skill, get_skill
+
 logger = logging.getLogger(__name__)
+
+# Допустимые значения вердикта от LLM
+_VALID_VERDICTS = ("false-positive", "likely-true-positive", "needs-review")
 
 # Список полей сработки, которые мы передаем в LLM для анализа. 
 # Это помогает стандартизировать входные данные и избежать передачи избыточной информации.
@@ -32,39 +37,16 @@ _LLM_FINDING_FIELDS = [
     "test_name",
 ]
 
-# Системный промпт для LLM, который задает контекст и правила для анализа сработки.
-_SYSTEM_PROMPT = """\
-You are an expert application security engineer performing automated triage.
-Determine if the security finding below is a false-positive or requires manual review.
+# Системные промпты анализа перенесены в analysis/skills.py: у каждой категории
+# сработки (SAST / SCA / generic) свой специализированный статический промпт.
+# Переменные данные (RAG, улики, код, finding) передаются в user-промпте, чтобы
+# LLM-сервер мог переиспользовать кэш префикса системного промпта между запросами.
 
-Known false-positive patterns from the knowledge base (use these as reference):
-{rag_context}
-{code_context_block}
-Rules:
-1. Base your decision ONLY on the provided context and finding data.
-2. Do NOT hallucinate CVE details, component versions, or patch information.
-3. If the context clearly matches the finding pattern → false-positive.
-4. If context is missing or unclear → needs-review with low confidence.
-5. Explanation must be factual, concise, max 100 words.
-6. If source code is provided, use it to verify whether the vulnerability is exploitable in context. Template variables in safe contexts, sanitized inputs, or test fixtures are strong indicators of false positives.
-
-Respond with valid JSON only:
-{{
-  "verdict": "false-positive" | "needs-review",
-  "confidence": <float 0.0-1.0>,
-  "explanation": "<string>"
-}}"""
-
-# Системный промпт для проверяющего LLM, который проверяет результат основного LLM
+# Системный промпт для проверяющего LLM, который проверяет результат основного LLM.
+# Статический — исходный результат и контекст передаются в user-промпте.
 _VERIFICATION_SYSTEM_PROMPT = """\
 You are an expert security reviewer validating an automated triage decision.
 Your role is to verify the correctness and consistency of the initial verdict.
-
-Initial Analysis Result:
-{initial_result}
-
-Known false-positive patterns from the knowledge base:
-{rag_context}
 
 Rules for verification:
 1. Check if the verdict is logically consistent with the explanation and finding data.
@@ -75,12 +57,12 @@ Rules for verification:
 6. Keep explanation concise (max 100 words), focusing on what changed and why.
 
 Respond with valid JSON only:
-{{
-  "verdict": "false-positive" | "needs-review",
+{
+  "verdict": "false-positive" | "likely-true-positive" | "needs-review",
   "confidence": <float 0.0-1.0>,
   "explanation": "<string>",
   "verified": true | false
-}}
+}
 
 "verified": true means you confirm the initial decision, false means you found issues."""
 
@@ -99,6 +81,7 @@ class LLMAnalyzer:
         finding: Dict,
         rag_context: List[str],
         code_context: Optional[str] = None,
+        skill: Optional[Skill] = None,
     ) -> Optional[Dict]:
         """
         Анализ одной сработки.
@@ -107,26 +90,24 @@ class LLMAnalyzer:
             finding:      Сырая сработка из ДД.
             rag_context:  Список с найденными похожими сработками из RAG.
             code_context: Кусок кода, если запуск с --repo флагом и передачей пути до исходников.
+            skill:        Скилл (категорийный промпт + сборщик улик); если не передан —
+                          определяется автоматически по полям сработки.
 
         Возвращает:
             Словарь  {verdict, confidence, explanation} или None
         """
+        skill = skill or get_skill(finding)
         normalized = self._normalize_finding(finding)
-        context_text = self._format_context(rag_context)
-        code_block = self._format_code_context(code_context)
-        if code_block is None:
-            logger.warning("No code contex found")
-        system_prompt = _SYSTEM_PROMPT.format(
-            rag_context=context_text,
-            code_context_block=code_block,
-        )
-        user_prompt = (
-            "Analyse this security finding:\n"
-            + json.dumps(normalized, ensure_ascii=False, indent=2)
+        evidence = skill.collect_evidence(finding, code_context)
+        if not code_context:
+            logger.warning("No code context found")
+
+        user_prompt = self._build_user_prompt(
+            normalized, rag_context, evidence, code_context
         )
 
         try:
-            raw = self.llm.chat(system_prompt, user_prompt)
+            raw = self.llm.chat(skill.system_prompt, user_prompt)
             result = json.loads(self._strip_markdown_fences(raw))
         except json.JSONDecodeError as e:
             logger.error("LLM returned non-JSON response: %s | raw=%s", e, raw[:200])
@@ -137,6 +118,9 @@ class LLMAnalyzer:
 
         if "verdict" not in result or "confidence" not in result:
             logger.warning("Unexpected LLM response structure: %s", result)
+            return None
+        if result["verdict"] not in _VALID_VERDICTS:
+            logger.warning("Unexpected LLM verdict: %s", result["verdict"])
             return None
 
         # Clamp confidence to [0, 1]
@@ -162,17 +146,17 @@ class LLMAnalyzer:
         """
         normalized = self._normalize_finding(finding)
         context_text = self._format_context(rag_context)
-        system_prompt = _VERIFICATION_SYSTEM_PROMPT.format(
-            initial_result=json.dumps(initial_result, ensure_ascii=False, indent=2),
-            rag_context=context_text,
-        )
         user_prompt = (
-            "Verify this security finding with the initial triage result above:\n"
+            "Initial Analysis Result:\n"
+            + json.dumps(initial_result, ensure_ascii=False, indent=2)
+            + "\n\nKnown false-positive patterns from the knowledge base:\n"
+            + context_text
+            + "\n\nVerify this security finding against the initial triage result above:\n"
             + json.dumps(normalized, ensure_ascii=False, indent=2)
         )
 
         try:
-            raw = self.llm.chat(system_prompt, user_prompt)
+            raw = self.llm.chat(_VERIFICATION_SYSTEM_PROMPT, user_prompt)
             result = json.loads(self._strip_markdown_fences(raw))
         except json.JSONDecodeError as e:
             logger.error("Verification LLM returned non-JSON response: %s | raw=%s", e, raw[:200])
@@ -188,6 +172,34 @@ class LLMAnalyzer:
         result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
         result.setdefault("verified", True)
         return result
+
+    @classmethod
+    def _build_user_prompt(
+        cls,
+        normalized: Dict,
+        rag_context: List[str],
+        evidence: List[str],
+        code_context: Optional[str],
+    ) -> str:
+        """
+        Собирает user-промпт: RAG-контекст, детерминированные улики, код и finding.
+        Все переменные данные находятся здесь, системный промпт скилла остаётся статичным.
+        """
+        parts = [
+            "Known false-positive patterns from the knowledge base:",
+            cls._format_context(rag_context),
+        ]
+        if evidence:
+            parts.append("\nDeterministic evidence (collected by static checks):")
+            parts.extend(f"- {item}" for item in evidence)
+        code_block = cls._format_code_context(code_context)
+        if code_block:
+            parts.append(code_block)
+        parts.append(
+            "\nAnalyse this security finding:\n"
+            + json.dumps(normalized, ensure_ascii=False, indent=2)
+        )
+        return "\n".join(parts)
 
     @staticmethod
     def _strip_markdown_fences(text: str) -> str:

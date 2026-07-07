@@ -79,7 +79,7 @@ class TriageResult(BaseModel):
     """
     finding_id: int
     action: TriageAction
-    # "false-positive" | "needs-review"
+    # "false-positive" | "likely-true-positive" | "needs-review"
     verdict: str
     confidence: float = 0.0
     explanation: str = ""

@@ -217,6 +217,7 @@ def triage(
 
     # статистика
     fp_count = 0
+    likely_tp_count = 0
     review_count = 0
 
     with open(output, "w", encoding="utf-8") as out:
@@ -226,6 +227,8 @@ def triage(
 
             if result.verdict == "false-positive":
                 fp_count += 1
+            elif result.verdict == "likely-true-positive":
+                likely_tp_count += 1
             else:
                 review_count += 1
 
@@ -236,7 +239,7 @@ def triage(
                 dd.add_comment(finding["id"], result.dd_comment)
 
     typer.echo(
-        f"Успешно выполнено. \n К ложным сработкам отнесено: {fp_count} \n Требуют ручного анализа {review_count} \n Файл с результатами {output}"
+        f"Успешно выполнено. \n К ложным сработкам отнесено: {fp_count} \n Вероятные уязвимости (приоритет): {likely_tp_count} \n Требуют ручного анализа {review_count} \n Файл с результатами {output}"
     )
 
 
@@ -431,7 +434,8 @@ def dataset(
     Подготовка датасета для дообучения модели в формате ChatML из результатов триажа.
     Каждая строка входного JSONL превращается в пример {messages: [system, user, assistant]}.
     """
-    from analysis.llm_analyzer import _LLM_FINDING_FIELDS, _SYSTEM_PROMPT
+    from analysis.llm_analyzer import _LLM_FINDING_FIELDS
+    from analysis.skills import GENERIC_SYSTEM_PROMPT
 
     settings = _load_settings()
     _setup_logging(settings.log_level)
@@ -446,10 +450,7 @@ def dataset(
     Path(output).parent.mkdir(parents=True, exist_ok=True)
 
     # Статический системный промпт без RAG/code-context — модель учится рассуждать по данным сработки
-    static_system = _SYSTEM_PROMPT.format(
-        rag_context="No prior false-positive context available for this finding.",
-        code_context_block="",
-    )
+    static_system = GENERIC_SYSTEM_PROMPT
 
     written = 0
     skipped = 0
