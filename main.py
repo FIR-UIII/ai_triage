@@ -9,6 +9,7 @@ AI Triage – автоматически производит триаж уяз�
 - bench: сравнивает результаты AI-триажа с окончательной ручной разметкой из DefectDojo
 - rag-delete: удаляет данные из RAG базы знаний по finding ID, документу или правилу
 - rag-add: добавляет один finding в базу знаний RAG на основе JSON файла с данными сработки
+- rules-check: валидирует prompt_rules.yaml и опционально показывает, какие правила совпадут с сработками из JSON файла
 """
 
 import json
@@ -103,9 +104,11 @@ def _build_checker_llm_client(settings):
 
 def _build_engine(settings, vector_store=None, llm_client=None, repo_path=None):
     from triage.engine import TriageEngine
+    from analysis.prompt_rules import load_prompt_rules
     store = vector_store or _build_vector_store(settings)
     llm = llm_client or _build_llm_client(settings)
     checker_llm = _build_checker_llm_client(settings)
+    prompt_rules = load_prompt_rules(settings.prompt_rules_path)
 
     code_context = None
     if repo_path:
@@ -123,6 +126,7 @@ def _build_engine(settings, vector_store=None, llm_client=None, repo_path=None):
         dd_base_url=settings.dd_api_url,
         code_context_provider=code_context,
         checker_llm_client=checker_llm,
+        prompt_rules=prompt_rules,
     )
 
 
@@ -595,6 +599,70 @@ def rag_add(
 
     ok = store.add_entry(entry)
     typer.echo(f"Added entry '{entry.id}': {'OK' if ok else 'FAILED'}")
+
+
+@app.command()
+def rules_check(
+    config_path: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to prompt rules YAML (default: from settings)"
+    ),
+    finding_file: Optional[str] = typer.Option(
+        None, "--finding", "-f", help="JSON file with a finding or list of findings to test matching"
+    ),
+) -> None:
+    """
+    Валидация prompt_rules.yaml и dry-run матчинга правил (без LLM и DefectDojo).
+    Пример использования → python main.py rules-check
+    Пример использования → python main.py rules-check --finding test/test_SAST.json
+    """
+    from analysis.prompt_rules import load_prompt_rules
+
+    # Команде не нужен DefectDojo: настройки используются только для пути по умолчанию
+    path = config_path
+    log_level = "INFO"
+    if path is None:
+        try:
+            settings = _load_settings()
+            path = settings.prompt_rules_path
+            log_level = settings.log_level
+        except Exception:
+            path = "./prompt_rules.yaml"
+    _setup_logging(log_level)
+
+    try:
+        config = load_prompt_rules(path)
+    except ValueError as e:
+        typer.echo(f"ОШИБКА: {e}")
+        raise typer.Exit(1)
+
+    if config is None:
+        typer.echo(f"Файл не найден: {path} — правила промптов отключены")
+        raise typer.Exit(0)
+
+    verdict_rules = [r for r in config.rules if r.verdict is not None]
+    addition_rules = [r for r in config.rules if r.prompt_addition is not None]
+    typer.echo(f"Конфигурация валидна: {path}")
+    typer.echo(f"  Scanner-блоков: {len(config.scanners)} ({', '.join(b.test_name for b in config.scanners)})")
+    typer.echo(f"  Verdict-правил: {len(verdict_rules)} ({', '.join(r.name for r in verdict_rules)})")
+    typer.echo(f"  Prompt-addition правил: {len(addition_rules)} ({', '.join(r.name for r in addition_rules)})")
+
+    if not finding_file:
+        return
+
+    with open(finding_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    findings = data if isinstance(data, list) else [data]
+
+    typer.echo(f"\nDry-run матчинга: {len(findings)} findings из {finding_file}")
+    for finding in findings:
+        scanner = next((b.test_name for b in config.scanners if b.matches(finding)), "-")
+        hit = config.forced_verdict(finding)
+        verdict_str = f"{hit[0]} -> {hit[1].value}" if hit else "-"
+        additions = [name for name, _ in config.prompt_additions(finding)]
+        typer.echo(
+            f"  [{finding.get('id', '?')}] {str(finding.get('title', ''))[:60]}\n"
+            f"      scanner: {scanner} | verdict-rule: {verdict_str} | additions: {additions or '-'}"
+        )
 
 
 if __name__ == "__main__":

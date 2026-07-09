@@ -13,7 +13,9 @@ from pydantic import BaseModel, Field
 
 
 class TriageAction(str, Enum):
+    # legacy: оставлен для чтения старых JSONL-результатов, новые правила используют PROMPT_RULE
     DETERMINISTIC_RULE = "deterministic_rule"
+    PROMPT_RULE = "prompt_rule"
     RAG_META_MATCH = "rag_meta_match"
     RAG_SIMILARITY_MATCH = "rag_similarity_match"
     LLM_ANALYSIS = "llm_analysis"

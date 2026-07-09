@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     code_context_lines: int = Field(50, validation_alias="CODE_CONTEXT_LINES")
 
     # App
+    # Путь к YAML с per-scanner промптами и точечными правилами; файл опционален
+    prompt_rules_path: str = Field("./prompt_rules.yaml", validation_alias="PROMPT_RULES_PATH")
     cache_dir: str = Field("./cache", validation_alias="CACHE_DIR")
     output_dir: str = Field("./output", validation_alias="OUTPUT_DIR")
     log_level: str = Field("INFO", validation_alias="LOG_LEVEL")

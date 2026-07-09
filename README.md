@@ -613,33 +613,57 @@ print(result.flow_paths)      # список путей data-flow
 
 ---
 
-## Детерминистические правила
+## Правила промптов и детерминистические правила
 
-**Файл:** `analysis/rules.py`
+**Файл:** `prompt_rules.yaml` (путь настраивается через `PROMPT_RULES_PATH`, загрузка и матчинг — `analysis/prompt_rules.py`)
+
+Один YAML-файл управляет тремя механизмами:
+
+1. **`scanners:`** — базовые блоки системного промпта по типу сканера (Semgrep / Gitleaks / KICS / Trivy). `test_name` сравнивается как подстрока без учета регистра, применяется первый совпавший блок.
+2. **`rules:` с `verdict:`** — детерминированные правила: принудительный вердикт (`false-positive` / `needs-review`) с заданной confidence **без вызова LLM**. Срабатывает первое совпавшее по порядку в YAML (Шаг 1 пайплайна).
+3. **`rules:` с `prompt_addition:`** — точечные добавки к системному промпту LLM под конкретные rule id / пути / severity. Применяются все совпавшие.
+
+Условия внутри `match` объединяются по AND: `title`, `title_regex`, `vuln_id_from_tool`, `test_name`, `file_path_glob`, `file_path_regex`, `severity`, `cwe`, `notes_contains`, `is_mitigated`, `active`.
+
+Стартовые verdict-правила (мигрированы из бывшего `analysis/rules.py`):
 
 | Правило | Условие | Confidence |
 |---|---|---|
-| `severity_out_of_scope` | severity = Info / Low | 0.95 |
-| `test_file` | путь содержит `/test/`, `/spec/`, `/mock/` | 0.88 |
-| `documentation_file` | расширение `.md`, `.rst`, `.txt` | 0.90 |
-| `vendor_backport` | в notes: "патч от вендора", "backported" | 0.87 |
-| `already_mitigated` | `is_mitigated=True` и `active=False` | 0.95 |
+| `severity-out-of-scope` | severity = Info / Low | 0.95 |
+| `test-file` | путь содержит `/test/`, `/spec/`, `/mock/` | 0.88 |
+| `documentation-file` | расширение `.md`, `.rst`, `.txt` | 0.90 |
+| `vendor-backport` | в notes: "патч от вендора", "backported" | 0.87 |
+| `already-mitigated` | `is_mitigated=True` и `active=False` | 0.95 |
 
 Добавить своё правило:
 
-```python
-# analysis/rules.py
+```yaml
+# prompt_rules.yaml
+rules:
+  - name: internal-tool
+    match:
+      file_path_glob: "*internal_tool*"
+    verdict:
+      value: false-positive
+      confidence: 0.85
+      explanation: "Finding is in an internal tooling directory"
 
-def _internal_tool(finding: Dict) -> bool:
-    return "internal_tool" in (finding.get("file_path") or "")
-
-RULES.append(Rule(
-    name="internal_tool",
-    description="Finding is in an internal tooling directory",
-    check=_internal_tool,
-    confidence=0.85,
-))
+  - name: sqli-orm-hint
+    match:
+      title_regex: "sql-injection"
+      test_name: "Semgrep"
+    prompt_addition: |
+      This project uses SQLAlchemy ORM everywhere; raw SQL is only allowed in migrations.
 ```
+
+Проверка конфигурации и dry-run матчинга (без LLM и DefectDojo):
+
+```bash
+python main.py rules-check                                # валидация + сводка
+python main.py rules-check --finding test/test_SAST.json  # какие правила совпадут
+```
+
+Если `prompt_rules.yaml` отсутствует — пайплайн работает без Шага 1 и кастомных промптов; если файл невалиден — запуск завершается с ошибкой валидации.
 
 ---
 
@@ -659,8 +683,9 @@ ai_triage/
 ├── knowledge/
 │   ├── vector_store.py            # ChromaDB (cosine similarity)
 │   └── enrichment.py              # Pipeline обогащения KB
+├── prompt_rules.yaml              # per-scanner промпты + точечные правила (verdict / prompt_addition)
 ├── analysis/
-│   ├── rules.py                   # Детерминистические правила
+│   ├── prompt_rules.py            # схема, матчинг и загрузка prompt_rules.yaml
 │   ├── llm_analyzer.py            # LLM + RAG context
 │   └── reachability.py            # Semgrep / CodeQL / Composite
 ├── llm_backend/

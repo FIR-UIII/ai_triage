@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 _LLM_FINDING_FIELDS = [
     "id",
     "title",
+    "vuln_id_from_tool",
     "severity",
     "description",
     "file_path",
@@ -32,8 +33,10 @@ _LLM_FINDING_FIELDS = [
     "test_name",
 ]
 
-# Системный промпт для LLM, который задает контекст и правила для анализа сработки.
-_SYSTEM_PROMPT = """\
+# Базовая часть системного промпта для LLM: контекст и правила анализа сработки.
+# Специфичные для сканера блоки и точечные добавки из prompt_rules.yaml вставляются между
+# базовой частью и контрактом формата ответа (_RESPONSE_FORMAT).
+_SYSTEM_PROMPT_BASE = """\
 You are an expert application security engineer performing automated triage.
 Determine if the security finding below is a false-positive or requires manual review.
 
@@ -47,13 +50,19 @@ Rules:
 4. If context is missing or unclear → needs-review with low confidence.
 5. Explanation must be factual, concise, max 100 words.
 6. If source code is provided, use it to verify whether the vulnerability is exploitable in context. Template variables in safe contexts, sanitized inputs, or test fixtures are strong indicators of false positives.
+"""
 
+# Контракт формата ответа — всегда идет последним блоком системного промпта.
+_RESPONSE_FORMAT = """
 Respond with valid JSON only:
 {{
   "verdict": "false-positive" | "needs-review",
   "confidence": <float 0.0-1.0>,
   "explanation": "<string>"
 }}"""
+
+# Обратная совместимость: полный шаблон, как раньше (используется командой dataset в main.py)
+_SYSTEM_PROMPT = _SYSTEM_PROMPT_BASE + _RESPONSE_FORMAT
 
 # Системный промпт для проверяющего LLM, который проверяет результат основного LLM
 _VERIFICATION_SYSTEM_PROMPT = """\
@@ -99,14 +108,18 @@ class LLMAnalyzer:
         finding: Dict,
         rag_context: List[str],
         code_context: Optional[str] = None,
+        scanner_prompt: Optional[str] = None,
+        prompt_additions: Optional[List[str]] = None,
     ) -> Optional[Dict]:
         """
         Анализ одной сработки.
 
         Принимает на вход:
-            finding:      Сырая сработка из ДД.
-            rag_context:  Список с найденными похожими сработками из RAG.
-            code_context: Кусок кода, если запуск с --repo флагом и передачей пути до исходников.
+            finding:          Сырая сработка из ДД.
+            rag_context:      Список с найденными похожими сработками из RAG.
+            code_context:     Кусок кода, если запуск с --repo флагом и передачей пути до исходников.
+            scanner_prompt:   Блок инструкций под тип сканера из prompt_rules.yaml.
+            prompt_additions: Точечные добавки к промпту из совпавших правил prompt_rules.yaml.
 
         Возвращает:
             Словарь  {verdict, confidence, explanation} или None
@@ -116,10 +129,23 @@ class LLMAnalyzer:
         code_block = self._format_code_context(code_context)
         if code_block is None:
             logger.warning("No code contex found")
-        system_prompt = _SYSTEM_PROMPT.format(
-            rag_context=context_text,
-            code_context_block=code_block,
-        )
+        parts = [
+            _SYSTEM_PROMPT_BASE.format(
+                rag_context=context_text,
+                code_context_block=code_block,
+            )
+        ]
+        if scanner_prompt:
+            parts.append("\nScanner-specific instructions:\n" + scanner_prompt.strip())
+        if prompt_additions:
+            parts.append(
+                "\nRule-specific instructions for this finding:\n"
+                + "\n".join(f"- {a.strip()}" for a in prompt_additions)
+            )
+        # Контракт формата ответа идет последним; format() снимает экранирование {{ }}
+        parts.append(_RESPONSE_FORMAT.format())
+        # Блоки уже содержат ведущие переводы строк — без добавок промпт идентичен _SYSTEM_PROMPT
+        system_prompt = "".join(parts)
         user_prompt = (
             "Analyse this security finding:\n"
             + json.dumps(normalized, ensure_ascii=False, indent=2)

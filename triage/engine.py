@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 
 from analysis.llm_analyzer import LLMAnalyzer
 from analysis.code_context import CodeContextProvider
-from analysis.rules import analyze_finding
+from analysis.prompt_rules import PromptRulesConfig
 from core.models import TriageAction, TriageResult
 from knowledge.vector_store import VectorStore
 from llm_backend.client import LLMClient
@@ -34,12 +34,14 @@ class TriageEngine:
         dd_base_url: str = "",
         code_context_provider: Optional[CodeContextProvider] = None,
         checker_llm_client: Optional[LLMClient] = None,
+        prompt_rules: Optional[PromptRulesConfig] = None,
     ):
         self.store = vector_store
         self.llm_analyzer = LLMAnalyzer(llm_client)
         self.checker_llm_analyzer = LLMAnalyzer(checker_llm_client) if checker_llm_client else None
         self.dd_base_url = dd_base_url.rstrip("/")
         self.code_context = code_context_provider
+        self.prompt_rules = prompt_rules
 
     def triage(self, finding: Dict) -> TriageResult:
         """
@@ -50,8 +52,8 @@ class TriageEngine:
             "[%s] Triaging: %s", finding_id, str(finding.get("title", ""))[:70]
         )
 
-        # Шаг 1 – Deterministic rules
-        result = self._stage_rules(finding)
+        # Шаг 1 – Deterministic rules (verdict-правила из prompt_rules.yaml)
+        result = self._stage_prompt_rule_verdict(finding)
         if result:
             return result
 
@@ -113,21 +115,31 @@ class TriageEngine:
             logger.debug("Batch progress: %d/%d", i, total)
         return results
 
-    def _stage_rules(self, finding: Dict) -> Optional[TriageResult]:
+    def _stage_prompt_rule_verdict(self, finding: Dict) -> Optional[TriageResult]:
         """
-        Шаг 1. Применение детерминированных правил к сработке.
+        Шаг 1. Детерминированные verdict-правила из prompt_rules.yaml.
+        Первое совпавшее правило (по порядку в YAML) выставляет вердикт без вызова LLM.
         """
-        matched, explanation, confidence = analyze_finding(finding)
-        if not matched:
+        if not self.prompt_rules:
             return None
-        logger.info("[%s] Stage 1 match: %s", finding.get("id"), explanation)
+        hit = self.prompt_rules.forced_verdict(finding)
+        if not hit:
+            return None
+        name, fv = hit
+        logger.info(
+            "[%s] Stage 1 prompt-rule verdict: %s -> %s", finding.get("id"), name, fv.value
+        )
         return TriageResult(
             finding_id=finding["id"],
-            action=TriageAction.DETERMINISTIC_RULE,
-            verdict="false-positive",
-            confidence=confidence,
-            explanation=explanation,
-            dd_comment=f"[Auto-triage] False positive by rule: {explanation}",
+            action=TriageAction.PROMPT_RULE,
+            verdict=fv.value,
+            confidence=fv.confidence,
+            explanation=f"[PromptRule:{name}] {fv.explanation}",
+            dd_comment=(
+                f"[Auto-triage] Verdict '{fv.value}' forced by prompt rule "
+                f"'{name}': {fv.explanation}"
+            ),
+            metadata={"prompt_rule": name},
         )
 
     def _stage_meta_match(
@@ -227,7 +239,17 @@ class TriageEngine:
                 )
                 rag_context = [r["document"] for r in ctx_results]
 
-        llm_result = self.llm_analyzer.analyze(finding, rag_context, code_context=self._get_code_context(finding))
+        # Специфичный для сканера блок промпта и точечные добавки из prompt_rules.yaml
+        scanner_prompt = self.prompt_rules.scanner_prompt(finding) if self.prompt_rules else None
+        additions = self.prompt_rules.prompt_additions(finding) if self.prompt_rules else []
+
+        llm_result = self.llm_analyzer.analyze(
+            finding,
+            rag_context,
+            code_context=self._get_code_context(finding),
+            scanner_prompt=scanner_prompt,
+            prompt_additions=[text for _, text in additions],
+        )
         if not llm_result:
             return None
 
@@ -252,6 +274,7 @@ class TriageEngine:
                 f"[LLM Triage] {verdict} "
                 f"(confidence={confidence:.2f}): {explanation}"
             ),
+            metadata={"prompt_rules_applied": [name for name, _ in additions]} if additions else {},
         )
 
     def _stage_verification(
