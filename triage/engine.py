@@ -258,10 +258,12 @@ class TriageEngine:
         explanation = llm_result.get("explanation", "")
 
         logger.info(
-            "[%s] Stage 4 LLM: verdict=%s confidence=%.2f",
+            "[%s] Stage 4 LLM: verdict=%s confidence=%.2f scanner_prompt=%s additions=%s",
             finding.get("id"),
             verdict,
             confidence,
+            scanner_prompt,
+            additions
         )
 
         return TriageResult(

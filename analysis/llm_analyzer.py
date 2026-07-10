@@ -129,12 +129,16 @@ class LLMAnalyzer:
         code_block = self._format_code_context(code_context)
         if code_block is None:
             logger.warning("No code contex found")
+        else:
+            logger.info("Code contex loaded")
+        
         parts = [
             _SYSTEM_PROMPT_BASE.format(
                 rag_context=context_text,
                 code_context_block=code_block,
             )
         ]
+        
         if scanner_prompt:
             parts.append("\nScanner-specific instructions:\n" + scanner_prompt.strip())
         if prompt_additions:

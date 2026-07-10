@@ -53,23 +53,22 @@ scanners:
 
 rules:
   # ------------------------------------------------------------------
-  # Детерминированные правила (мигрированы из analysis/rules.py,
-  # порядок и confidence сохранены).
+  # Детерминированные правила до проверки LLM
   # ------------------------------------------------------------------
-  - name: severity-out-of-scope
-    match:
-      severity: [Info, Informational, Low]
-    verdict:
-      value: false-positive
-      confidence: 0.95
-      explanation: "Severity Info/Low is out of triage scope."
+  # - name: severity-out-of-scope
+  #   match:
+  #     severity: [Info, Informational, Low]
+  #   verdict:
+  #     value: false-positive
+  #     confidence: 0.95
+  #     explanation: "Severity Info/Low is out of triage scope."
 
   - name: test-file
     match:
       file_path_regex: "[/_\\-](test|tests|spec|specs|mock|mocks|fixture|fixtures|example|sample)[/_\\-.]"
     verdict:
       value: false-positive
-      confidence: 0.88
+      confidence: 0.90
       explanation: "Finding is located in test/spec code that does not reach production."
 
   - name: documentation-file
@@ -92,7 +91,7 @@ rules:
         - "содержит исправление"
     verdict:
       value: false-positive
-      confidence: 0.87
+      confidence: 0.90
       explanation: "Analyst notes indicate the vendor has already backported a fix."
 
   - name: already-mitigated
@@ -101,27 +100,36 @@ rules:
       active: false
     verdict:
       value: false-positive
-      confidence: 0.95
+      confidence: 1
       explanation: "Finding is already marked as mitigated/closed in DefectDojo."
 
   # ------------------------------------------------------------------
   # Точечные правила под конкретные rule id / сработки — примеры.
   # ------------------------------------------------------------------
-  - name: gitleaks-private-key-in-fixtures
+  - name: app.rules.java.lang.pro.security.cookie-missing-samesite
     match:
-      title_regex: "gitleaks\\.private-key"
-      file_path_glob: "*test*"
+      title: "app.rules.java.lang.pro.security.cookie-missing-samesite"
     prompt_addition: |
-      Private keys located under test or fixture directories in this codebase are synthetic
-      keys used by the test suite. Treat them as a strong false-positive indicator unless the
-      key material also appears outside test code.
+      Check if `samesite("Lax")` or `samesite("Strict")` appears in the lines above or below within the provided code.
+
+  # для демо
+  # - name: app.rules.java.lang.pro.security.cookie-missing-samesite
+  #   match:
+  #     title: "app.rules.java.lang.pro.security.cookie-missing-samesite"
+  #   prompt_addition: |
+  #     Check if `samesite("Lax")` or `samesite("Strict")` appears in the lines above or below within the provided code. In explanation tell in which line if it was configured
+
+  # - name: rules.contrib.nodejsscan.node_nosqli_injection
+  #   match:
+  #     title: "rules.contrib.nodejsscan.node_nosqli_injection"
+  #   prompt_addition: |
+  #     Check if Sequelize ORM import appears in the lines above within the provided code and func calling via Sequelize, if so - mark as false-positive.
 
   # Пример принудительного вердикта для заведомо шумного правила (закомментирован):
-  # - name: force-fp-shared-url-struct
-  #   match:
-  #     title: "app.rules.go.lang.security.shared-url-struct-mutation"
-  #     severity: [Medium]
-  #   verdict:
-  #     value: false-positive
-  #     confidence: 0.85
-  #     explanation: "Known noisy Semgrep rule for this repository; struct mutation is intentional."
+  - name: musl-CVE-2025-26519
+    match:
+      title_regex: "musl:1\\.2\\.5-r(?:[2-9][0-9])\\s+Affected By:\\s+CVE-\\d{4}-\\d+\\s+\\(NVD\\)"
+    verdict:
+      value: false-positive
+      confidence: 0.85
+      explanation: "CVE-2025-26519 know noisy BCA rule for this repository"
