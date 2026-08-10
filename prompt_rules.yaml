@@ -1,0 +1,150 @@
+# Правила промптов для AI Triage (см. analysis/prompt_rules.py).
+#
+# scanners: базовые блоки системного промпта по типу сканера.
+#   test_name сравнивается как подстрока (без учета регистра) с полем test_name сработки,
+#   т.к. имена тестов в DefectDojo варьируются ("Semgrep JSON Report", "Gitleaks Scan" и т.п.).
+#   Применяется первый совпавший блок.
+#
+# meta_match: набор полей для точного поиска по базе знаний (Шаг 2 триажа) по типу сканера.
+#   test_name сравнивается так же, как в scanners; применяется первый совпавший блок.
+#   require — полный список полей, которые должны ТОЧНО совпасть с записью KB (AND).
+#   Задается ВМЕСТО дефолта (cve + component_name, при отсутствии cve — file_path),
+#   а не в дополнение к нему. Допустимые поля: cve, component_name, file_path, title.
+#   Если у сработки пусто хотя бы одно из требуемых полей — Шаг 2 пропускается
+#   и сработка уходит на семантический поиск / LLM.
+#
+# rules: точечные правила. Все условия внутри match объединяются по AND.
+#   Правило содержит РОВНО ОДНО из:
+#     prompt_addition — текст добавляется к системному промпту LLM (применяются ВСЕ совпавшие);
+#     verdict         — принудительный вердикт без вызова LLM (срабатывает ПЕРВОЕ совпавшее по порядку).
+#
+# Доступные условия match:
+#   title:             точное совпадение title
+#   title_regex:       регулярное выражение по title (re.search, без учета регистра)
+#   vuln_id_from_tool: id правила сканера, строка или список строк
+#   test_name:         подстрока в test_name (без учета регистра)
+#   file_path_glob:    fnmatch-шаблон по file_path/sast_source_file_path ('*' пересекает '/')
+#   file_path_regex:   регулярное выражение по file_path/sast_source_file_path
+#   severity:          список severity (без учета регистра)
+#   cwe:               номер CWE или список номеров
+#   notes_contains:    список подстрок; ищутся в notes[].entry (без учета регистра)
+#   is_mitigated:      булево поле сработки
+#   active:            булево поле сработки
+
+version: 1
+
+scanners:
+  - test_name: "Semgrep"
+    prompt: |
+      This finding comes from Semgrep (static code analysis). The title and vuln_id_from_tool
+      contain the Semgrep rule id. Focus on whether the flagged code pattern is exploitable
+      in its actual context: check for sanitization, template auto-escaping, constant inputs,
+      and non-production code paths.
+
+  - test_name: "Gitleaks"
+    prompt: |
+      This finding comes from Gitleaks (secret detection). Judge whether the detected string
+      is a real credential: entropy alone is not proof. Placeholders, documentation examples,
+      public test keys and templated values ({{var}}, ${VAR}) are strong false-positive signals.
+
+  - test_name: "KICS"
+    prompt: |
+      This finding comes from KICS (IaC misconfiguration scanning). Evaluate whether the
+      configuration is actually deployed and reachable; hardening suggestions for local/dev
+      manifests or values overridden elsewhere are usually not real issues.
+
+  - test_name: "Trivy"
+    prompt: |
+      This finding comes from Trivy (SCA, dependency CVEs). Base the verdict on component_name,
+      component_version and the CVE list. Do not invent affected-version ranges: if the provided
+      context does not establish that the installed version is affected, answer needs-review.
+
+meta_match:
+  # KICS: file_path не идентифицирует сработку — один Dockerfile/k8s-манифест дает
+  # десятки разных правил, а component_name у IaC-сработок пустой. Без title любая
+  # новая сработка в уже известном файле помечалась дубликатом чужого FP.
+  - test_name: "KICS"
+    require: [file_path, title]
+
+rules:
+  # ------------------------------------------------------------------
+  # Детерминированные правила до проверки LLM
+  # ------------------------------------------------------------------
+  # - name: severity-out-of-scope
+  #   match:
+  #     severity: [Info, Informational, Low]
+  #   verdict:
+  #     value: false-positive
+  #     confidence: 0.95
+  #     explanation: "Severity Info/Low is out of triage scope."
+
+  - name: test-file
+    match:
+      file_path_regex: "[/_\\-](test|tests|spec|specs|mock|mocks|fixture|fixtures|example|sample)[/_\\-.]"
+    verdict:
+      value: false-positive
+      confidence: 0.90
+      explanation: "Finding is located in test/spec code that does not reach production."
+
+  - name: documentation-file
+    match:
+      file_path_regex: "\\.(md|rst|txt|adoc|asciidoc)$"
+    verdict:
+      value: false-positive
+      confidence: 0.90
+      explanation: "Finding is located in a documentation file."
+
+  - name: vendor-backport
+    match:
+      notes_contains:
+        - "vendor patch"
+        - "backported"
+        - "backport fix"
+        - "патч от вендора"
+        - "исправление вендора"
+        - "содержащее исправление"
+        - "содержит исправление"
+    verdict:
+      value: false-positive
+      confidence: 0.90
+      explanation: "Analyst notes indicate the vendor has already backported a fix."
+
+  - name: already-mitigated
+    match:
+      is_mitigated: true
+      active: false
+    verdict:
+      value: false-positive
+      confidence: 1
+      explanation: "Finding is already marked as mitigated/closed in DefectDojo."
+
+  # ------------------------------------------------------------------
+  # Точечные правила под конкретные rule id / сработки — примеры.
+  # ------------------------------------------------------------------
+  - name: app.rules.java.lang.pro.security.cookie-missing-samesite
+    match:
+      title: "app.rules.java.lang.pro.security.cookie-missing-samesite"
+    prompt_addition: |
+      Check if `samesite("Lax")` or `samesite("Strict")` appears in the lines above or below within the provided code.
+
+  # для демо
+  # - name: app.rules.java.lang.pro.security.cookie-missing-samesite
+  #   match:
+  #     title: "app.rules.java.lang.pro.security.cookie-missing-samesite"
+  #   prompt_addition: |
+  #     Check if `samesite("Lax")` or `samesite("Strict")` appears in the lines above or below within the provided code. In explanation tell in which line if it was configured
+
+  # - name: rules.contrib.nodejsscan.node_nosqli_injection
+  #   match:
+  #     title: "rules.contrib.nodejsscan.node_nosqli_injection"
+  #   prompt_addition: |
+  #     Check if Sequelize ORM import appears in the lines above within the provided code and func calling via Sequelize, if so - mark as false-positive.
+
+  # Пример принудительного вердикта для заведомо шумного правила (закомментирован):
+  - name: musl-CVE-2025-26519
+    match:
+      title_regex: "musl:1\\.2\\.5-r(?:[2-9][0-9])\\s+Affected By:\\s+CVE-\\d{4}-\\d+\\s+\\(NVD\\)"
+    verdict:
+      value: false-positive
+      confidence: 0.85
+      explanation: "CVE-2025-26519 know noisy BCA rule for this repository"

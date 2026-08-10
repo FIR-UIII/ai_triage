@@ -12,9 +12,8 @@ import logging
 from typing import Dict, List, Optional
 
 from analysis.llm_analyzer import LLMAnalyzer
-from analysis.reachability import BaseReachabilityAnalyzer
 from analysis.code_context import CodeContextProvider
-from analysis.rules import analyze_finding
+from analysis.prompt_rules import PromptRulesConfig
 from core.models import TriageAction, TriageResult
 from knowledge.vector_store import VectorStore
 from llm_backend.client import LLMClient
@@ -33,16 +32,16 @@ class TriageEngine:
         vector_store: VectorStore,
         llm_client: LLMClient,
         dd_base_url: str = "",
-        reachability_analyzer: Optional[BaseReachabilityAnalyzer] = None,
-        source_root: Optional[str] = None,
         code_context_provider: Optional[CodeContextProvider] = None,
+        checker_llm_client: Optional[LLMClient] = None,
+        prompt_rules: Optional[PromptRulesConfig] = None,
     ):
         self.store = vector_store
         self.llm_analyzer = LLMAnalyzer(llm_client)
+        self.checker_llm_analyzer = LLMAnalyzer(checker_llm_client) if checker_llm_client else None
         self.dd_base_url = dd_base_url.rstrip("/")
-        self.reachability = reachability_analyzer
-        self.source_root = source_root
         self.code_context = code_context_provider
+        self.prompt_rules = prompt_rules
 
     def triage(self, finding: Dict) -> TriageResult:
         """
@@ -53,15 +52,14 @@ class TriageEngine:
             "[%s] Triaging: %s", finding_id, str(finding.get("title", ""))[:70]
         )
 
-        # Шаг 1 – Deterministic rules
-        result = self._stage_rules(finding)
+        # Шаг 1 – Deterministic rules (verdict-правила из prompt_rules.yaml)
+        result = self._stage_prompt_rule_verdict(finding)
         if result:
             return result
 
         # Шаг 2 – Точный поиск metadata match
         cve = self._primary_cve(finding)
-        component = finding.get("component_name")
-        result = self._stage_meta_match(finding, cve, component)
+        result = self._stage_meta_match(finding, cve)
         if result:
             return result
 
@@ -70,9 +68,11 @@ class TriageEngine:
         if result:
             return result
 
-        # Шаг 4 – LLM 
+        # Шаг 4 – LLM
         result = self._stage_llm(finding)
         if result:
+            # Шаг 4.5 – Verification (optional)
+            result = self._stage_verification(finding, result, cve) or result
             return result
 
         # Шаг 6 – Fallback при отсутсвии результата
@@ -113,40 +113,53 @@ class TriageEngine:
             logger.debug("Batch progress: %d/%d", i, total)
         return results
 
-    def _stage_rules(self, finding: Dict) -> Optional[TriageResult]:
+    def _stage_prompt_rule_verdict(self, finding: Dict) -> Optional[TriageResult]:
         """
-        Шаг 1. Применение детерминированных правил к сработке.
+        Шаг 1. Детерминированные verdict-правила из prompt_rules.yaml.
+        Первое совпавшее правило (по порядку в YAML) выставляет вердикт без вызова LLM.
         """
-        matched, explanation, confidence = analyze_finding(finding)
-        if not matched:
+        if not self.prompt_rules:
             return None
-        logger.info("[%s] Stage 1 match: %s", finding.get("id"), explanation)
+        hit = self.prompt_rules.forced_verdict(finding)
+        if not hit:
+            return None
+        name, fv = hit
+        logger.info(
+            "[%s] Stage 1 prompt-rule verdict: %s -> %s", finding.get("id"), name, fv.value
+        )
         return TriageResult(
             finding_id=finding["id"],
-            action=TriageAction.DETERMINISTIC_RULE,
-            verdict="false-positive",
-            confidence=confidence,
-            explanation=explanation,
-            dd_comment=f"[Auto-triage] False positive by rule: {explanation}",
+            action=TriageAction.PROMPT_RULE,
+            verdict=fv.value,
+            confidence=fv.confidence,
+            explanation=f"[PromptRule:{name}] {fv.explanation}",
+            dd_comment=(
+                f"[Auto-triage] Verdict '{fv.value}' forced by prompt rule "
+                f"'{name}': {fv.explanation}"
+            ),
+            metadata={"prompt_rule": name},
         )
 
     def _stage_meta_match(
         self,
         finding: Dict,
         cve: Optional[str],
-        component: Optional[str],
     ) -> Optional[TriageResult]:
         """
         Шаг 2. Точный поиск по метаданным (CVE + компонент) в базе знаний.
+         - Если CVE отсутствует, поиск выполняется по file_path.
+         - Набор полей можно переопределить для конкретного сканера блоком meta_match
+           в prompt_rules.yaml (см. _meta_match_query).
          - Если найдено точное совпадение, срабатывает триаж с высоким уровнем доверия.
          - Если совпадений нет, возвращает None для перехода к следующему этапу.
          - Этот этап позволяет быстро отсеивать известные ложные срабатывания на основе их идентификаторов и компонентов.
          - Важно, что для этого этапа требуется, чтобы база знаний была достаточно наполнена и актуальна, иначе он будет часто пропускать возможности для быстрого FP триажа.
          - Поэтому важно регулярно обогащать базу знаний новыми ложными срабатываниями и их метаданными из DefectDojo.
         """
-        if not cve and not component:
+        query = self._meta_match_query(finding, cve)
+        if not query:
             return None
-        matches = self.store.search_by_meta(cve=cve, component_name=component)
+        matches = self.store.search_by_meta(**query)
         if not matches:
             return None
         logger.info(
@@ -162,6 +175,55 @@ class TriageEngine:
             similar_finding_ids=similar_ids,
             dd_comment=self._build_similar_comment(matches),
         )
+
+    def _meta_match_query(self, finding: Dict, cve: Optional[str]) -> Optional[Dict]:
+        """
+        Собирает набор полей для точного meta-поиска (Шаг 2).
+
+        По умолчанию: CVE + component_name, а при отсутствии CVE — component_name + file_path.
+        Если для сканера сработки задан блок meta_match в prompt_rules.yaml, используется
+        его список require вместо дефолта: например, у KICS один file_path дает десятки
+        разных правил, поэтому к пути обязательно добавляется title (в KB хранится как rule),
+        иначе новая сработка в уже известном файле помечается дубликатом чужого FP.
+
+        Возвращает None (Шаг 2 пропускается, уходим на семантику/LLM), если ни одно поле
+        не заполнено или если пусто хотя бы одно из явно затребованных в meta_match полей —
+        матч по остатку от require дал бы то же самое ложное совпадение.
+        """
+        values = {
+            "cve": cve,
+            "component_name": finding.get("component_name"),
+            "file_path": finding.get("file_path"),
+            # title сработки хранится в метаданных базы знаний в поле rule
+            "title": finding.get("title"),
+        }
+
+        required = self.prompt_rules.meta_match_fields(finding) if self.prompt_rules else None
+        if required:
+            missing = [name for name in required if not values[name]]
+            if missing:
+                logger.debug(
+                    "[%s] Stage 2 skipped: meta_match requires %s, finding has no %s",
+                    finding.get("id"), required, missing,
+                )
+                return None
+            selected = {name: values[name] for name in required}
+        else:
+            selected = {
+                "cve": values["cve"],
+                "component_name": values["component_name"],
+                # file_path — запасной ключ, когда идентифицировать по CVE нечем
+                "file_path": None if cve else values["file_path"],
+            }
+            if not any(selected.values()):
+                return None
+
+        return {
+            "cve": selected.get("cve"),
+            "component_name": selected.get("component_name"),
+            "file_path": selected.get("file_path"),
+            "rule": selected.get("title"),
+        }
 
     def _stage_similarity(
         self, finding: Dict, cve: Optional[str]
@@ -202,18 +264,40 @@ class TriageEngine:
          - Формирует системный промпт, который включает правила и шаблоны для модели, а также RAG-контекст из базы знаний.
          - Вызывает LLM для получения вердикта о том является ли сработка ложным срабатыванием или требует ручной проверки.
         """
-        # Build RAG context: try rule-specific first, then text similarity
-        rule_key = finding.get("title", "")
-        rag_context = self.store.search_by_rule(rule_key, n_results=3)
-        if not rag_context:
-            # Fallback: semantic search for context
-            cve = self._primary_cve(finding)
-            ctx_results = self.store.search_by_similarity(
-                cve or rule_key, n_results=3, threshold=0.5
-            )
-            rag_context = [r["document"] for r in ctx_results]
+        # Build RAG context: file_path first, then rule-specific, then text similarity
+        file_path = finding.get("file_path")
+        if file_path:
+            fp_matches = self.store.search_by_meta(cve=None, component_name=None, file_path=file_path)
+            if fp_matches:
+                logger.debug("[%s] Stage 4 RAG: %d entries by file_path", finding.get("id"), len(fp_matches))
+                rag_context = [m["document"] for m in fp_matches]
+            else:
+                rag_context = []
+        else:
+            rag_context = []
 
-        llm_result = self.llm_analyzer.analyze(finding, rag_context, code_context=self._get_code_context(finding))
+        if not rag_context:
+            rule_key = finding.get("title", "")
+            rag_context = self.store.search_by_rule(rule_key, n_results=3)
+            if not rag_context:
+                # Fallback: semantic search for context
+                cve = self._primary_cve(finding)
+                ctx_results = self.store.search_by_similarity(
+                    cve or rule_key, n_results=3, threshold=0.5
+                )
+                rag_context = [r["document"] for r in ctx_results]
+
+        # Специфичный для сканера блок промпта и точечные добавки из prompt_rules.yaml
+        scanner_prompt = self.prompt_rules.scanner_prompt(finding) if self.prompt_rules else None
+        additions = self.prompt_rules.prompt_additions(finding) if self.prompt_rules else []
+
+        llm_result = self.llm_analyzer.analyze(
+            finding,
+            rag_context,
+            code_context=self._get_code_context(finding),
+            scanner_prompt=scanner_prompt,
+            prompt_additions=[text for _, text in additions],
+        )
         if not llm_result:
             return None
 
@@ -222,36 +306,89 @@ class TriageEngine:
         explanation = llm_result.get("explanation", "")
 
         logger.info(
-            "[%s] Stage 4 LLM: verdict=%s confidence=%.2f",
+            "[%s] Stage 4 LLM: verdict=%s confidence=%.2f scanner_prompt=%s additions=%s",
             finding.get("id"),
             verdict,
             confidence,
+            scanner_prompt,
+            additions
         )
-
-        # Шаг 5. Анализ достижимости для SAST находок (опционально) пока не тестировался
-        reach_note = ""
-        if self.reachability and finding.get("sast_source_file_path"):
-            reach = self.reachability.analyze(finding, self.source_root)
-            if reach.confidence > 0:
-                reach_label = "reachable" if reach.is_reachable else "not reachable"
-                reach_note = (
-                    f" [Reachability: {reach_label}, conf={reach.confidence:.2f}]"
-                )
-                logger.info("[%s] Stage 5 reachability: %s", finding.get("id"), reach_label)
-                # Unreachable sink → upgrade to FP and lower confidence slightly
-                if not reach.is_reachable and reach.confidence >= 0.7:
-                    verdict = "false-positive"
-                    confidence = round(min(confidence, 0.75), 3)
 
         return TriageResult(
             finding_id=finding["id"],
             action=TriageAction.LLM_ANALYSIS,
             verdict=verdict,
             confidence=confidence,
-            explanation=explanation + reach_note,
+            explanation=explanation,
             dd_comment=(
                 f"[LLM Triage] {verdict} "
-                f"(confidence={confidence:.2f}): {explanation}{reach_note}"
+                f"(confidence={confidence:.2f}): {explanation}"
+            ),
+            metadata={"prompt_rules_applied": [name for name, _ in additions]} if additions else {},
+        )
+
+    def _stage_verification(
+        self, finding: Dict, initial_result: TriageResult, cve: Optional[str]
+    ) -> Optional[TriageResult]:
+        """
+        Шаг 5. Проверка результата основного LLM на логические расхождения и уверенность.
+         - Опциональный этап, работает только если checker_llm_analyzer инициализирован.
+         - Проверяющий LLM анализирует вердикт и объяснение основного LLM.
+         - Может менять вердикт, если найдены логические ошибки.
+         - Может уточнять уровень уверенности (confidence).
+        """
+        if not self.checker_llm_analyzer:
+            return None
+
+        # Build RAG context for verification
+        rule_key = finding.get("title", "")
+        rag_context = self.store.search_by_rule(rule_key, n_results=3)
+        if not rag_context:
+            ctx_results = self.store.search_by_similarity(
+                cve or rule_key, n_results=3, threshold=0.5
+            )
+            rag_context = [r["document"] for r in ctx_results]
+
+        # Convert TriageResult to dict for verification
+        initial_dict = {
+            "verdict": initial_result.verdict,
+            "confidence": initial_result.confidence,
+            "explanation": initial_result.explanation,
+        }
+
+        verify_result = self.checker_llm_analyzer.verify(
+            finding, initial_dict, rag_context
+        )
+        if not verify_result:
+            return None
+
+        # If verification confirms initial result, return None to keep original
+        if verify_result.get("verified", True):
+            logger.info(
+                "[%s] Stage 5 verification: confirmed initial result",
+                finding.get("id"),
+            )
+            return None
+
+        # If verification found issues, update result
+        verdict = verify_result.get("verdict", initial_result.verdict)
+        confidence = float(verify_result.get("confidence", initial_result.confidence))
+        explanation = verify_result.get("explanation", initial_result.explanation)
+
+        logger.info(
+            "[%s] Stage 5 verification: verdict changed or confidence updated",
+            finding.get("id"),
+        )
+
+        return TriageResult(
+            finding_id=finding["id"],
+            action=TriageAction.LLM_ANALYSIS,
+            verdict=verdict,
+            confidence=confidence,
+            explanation=f"{initial_result.explanation} [Verified: {explanation}]",
+            dd_comment=(
+                f"[LLM Triage + Verification] {verdict} "
+                f"(confidence={confidence:.2f}): {explanation}"
             ),
         )
 

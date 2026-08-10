@@ -117,3 +117,22 @@ def build_llm_client(settings: Settings) -> LLMClient:
         n_threads=settings.llm_n_threads,
         temperature=settings.llm_temperature,
     )
+
+
+def build_checker_llm_client(settings: Settings) -> LLMClient:
+    """
+    Функция для создания проверяющего LLMClient (для верификации результатов)
+    """
+    if settings.checker_llm_api_base_url:
+        return OpenAICompatibleClient(
+            base_url=settings.checker_llm_api_base_url,
+            model=settings.checker_llm_api_model,
+            api_key=settings.checker_llm_api_key,
+            temperature=settings.checker_llm_temperature,
+        )
+    return LlamaCppClient(
+        model_path=settings.checker_llm_model_path,
+        n_ctx=settings.checker_llm_n_ctx,
+        n_threads=settings.checker_llm_n_threads,
+        temperature=settings.checker_llm_temperature,
+    )

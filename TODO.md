@@ -6,18 +6,129 @@ CodeGemma 7B SecureCode / Instruct
 https://huggingface.co/scthornton/llama-3.2-3b-securecode
 https://huggingface.co/scthornton/qwen2.5-coder-7b-securecode
 
-# фильтрация результатов
-добавить флаг `--false-positive` `-fp` чтобы в output файл выводились только "verdict": "false-positive" т.е. фильтровать вывод. Остальные статусы не выводить
+# добавить агента верификатора результатов
+Модель может выдавать логические несоответствия. Нужно проверить только описание 
+ {"finding_id": 3418021, "action": "llm_analysis", "verdict": "false-positive", "confidence": 0.9, "explanation": "The 'termsOfService' variable is used in an anchor tag with the 'href' attribute, but it is not clear if this variable is user-controlled or sanitized. Without additional context, it is difficult to determine if this is a true XSS vulnerability."}
 
-# бенчмарк
-Цель сравнить статус как был закрыт finding по итогу окончания триажа когда были проведен ручной анализ кода человеком. Для этого добавить команду `bench` на вход команда должна примимать `--input`, `-i` файл для анализа файла (это файл output с результатами прошного анализа триажа) и `--test-id` как и ранее принимает test-id и скачивает результаты findings но уже окончательно размеченных сработок и по статусам выводит статистику:
-- статус верно указан (если статусы false-positive совпадают): {кол-во верно определенных} {процент от общих сработок} 
-- статус неверно выставлен (если статусы false-positive НЕ совпадают): {кол-во неверно определенных} {процент от общих размеченных сработок} 
-
-
-# переписать логи DEBUG
-убрать реализацию логов с выводом <function _DEBUG at 0x00000219909FC4A0> - нужно привести к ожидаемому виду через logger чтобы они писались
+# добавить анализ достижимости 
+- сложная задача. Нужно научиться строить AST > CGD > DFD. Лучше сделать связку с уже имеющимся инструментами чтобы не создавать это самому.
 
 # план развития
 Обучить модель на продуктах АТОМ ИД
 Проверсти триаж 
+
+## Расшить модель RAG
+добавить 
+CWE
+sink
+source
+sanitizer
+framework
+language
+arguments
+
+## Добавить UI и функционал загрузки результатов в DD через него
+
+## Plan: Агентный анализ триажа
+TL;DR — добавить уже один запрос к LLM для верификации ответа от LLM. Он также получает оригинальный finding и ответ. Его задача проверить нет ли противоречий.
+
+verifier = run_llm(
+   system_prompt=JUDGE_PROMPT,
+   finding=finding,
+   fp_analysis=fp_agent,
+   security_analysis=security_agent
+)
+
+## Перейти на 3 уровневую проверку LLM 
+FP search - TP search - Judge
+
+> FP search
+System prompt. You are an AppSec triage specialist.
+Your task is to argue ONLY why this finding could be a false positive.
+Расширить промпт анализатора
+- search for sanitization
+- identify unreachable sinks
+- identify framework protections
+- identify impossible exploit paths
+
+You must be skeptical of the scanner.
+
+Never claim exploitable unless absolutely unavoidable.
+Output
+{
+  "position": "false_candidate",
+  "arguments": [
+    "input sanitized with html.EscapeString",
+    "sink not reachable from user input"
+  ],
+  "confidence": 0.81
+}
+
+
+> TP search
+Его задача выступить адвокатом дьявола и доказать что это верная сработка
+System prompt
+You are a senior security reviewer.
+Your task is to argue why this finding could be a real vulnerability.
+
+You must:
+- search for exploitability
+- identify bypasses
+- identify weak sanitization
+- identify user-controlled paths
+
+You must be skeptical of false-positive assumptions.
+
+Prioritize security risk over convenience.
+Output
+{
+  "position": "needs_review",
+  "arguments": [
+    "sanitizer only covers HTML context",
+    "SQL sink still reachable"
+  ],
+  "confidence": 0.74
+}
+
+> Judge agent
+
+Смотрит:
+
+finding
+RAG
+ответы обоих агентов
+
+И выдает structured result.
+
+Judge prompt
+You are the final AppSec adjudicator.
+
+Your task:
+- compare both analyses
+- identify contradictions
+- evaluate evidence quality
+- produce conservative security verdict
+
+Rules:
+- if exploitability evidence exists -> need-review
+- if uncertainty exists -> need-review
+- false only if strong evidence exists
+Output
+{
+  "decision": "need-review",
+  "reason": "Potential SQL injection path remains reachable",
+  "agreement_score": 0.42
+}
+
+
+### NEW
+dd UI добавить вывод файла и потом добавить на нее ссылку
+dd UI при загрузке json от AI - реализовать кнопку применить комментарий ИИ
+
+False negative KICS
+3291432
+Exact CVE/component match in knowledge base (5 entries) rag meta match
+3291427 3291428 3291429 3291430 3291431
+определил что это тоже самое https://ddojo.dev.rosatom.local/finding/3291427
+
+Заменить Exact CVE/component match in knowledge base НА Дублирующая сработка см. #...

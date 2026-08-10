@@ -11,19 +11,23 @@
 1. [Архитектура](#архитектура)
 2. [Требования](#требования)
 3. [Установка](#установка)
-4. [Конфигурация (.env)](#конфигурация-env)
-5. [LLM-бекенд](#llm-бекенд)
+4. [Docker](#docker)
+5. [Конфигурация (.env)](#конфигурация-env)
+6. [LLM-бекенд](#llm-бекенд)
    - [Вариант A: локальный llama.cpp (GGUF)](#вариант-a-локальный-llamacpp-gguf)
    - [Вариант B: Ollama (Docker)](#вариант-b-ollama-docker)
    - [Вариант C: llama-server (llama.cpp HTTP)](#вариант-c-llama-server-llamacpp-http)
-6. [Векторная база знаний (RAG / ChromaDB)](#векторная-база-знаний-rag--chromadb)
-7. [CLI-команды](#cli-команды)
-8. [Пайплайн триажа (6 стадий)](#пайплайн-триажа-6-стадий)
-9. [Модуль обогащения знаний](#модуль-обогащения-знаний)
-10. [Анализ достижимости (Reachability)](#анализ-достижимости-reachability)
-11. [Детерминистические правила](#детерминистические-правила)
-12. [Структура проекта](#структура-проекта)
-13. [Формат выходных данных](#формат-выходных-данных)
+7. [Векторная база знаний (RAG / ChromaDB)](#векторная-база-знаний-rag--chromadb)
+8. [CLI-команды](#cli-команды)
+   - [enrich](#enrich---обогащение-векторной-базы-знаний-rag--chromadb)
+   - [triage](#triage--триаж-сработок)
+   - [fetch](#fetch--скачать-findings-в-файл)
+9. [Пайплайн триажа (6 стадий)](#пайплайн-триажа-6-стадий)
+10. [Модуль обогащения знаний](#модуль-обогащения-знаний)
+11. [Анализ достижимости (Reachability)](#анализ-достижимости-reachability)
+12. [Детерминистические правила](#детерминистические-правила)
+13. [Структура проекта](#структура-проекта)
+14. [Формат выходных данных](#формат-выходных-данных)
 
 ---
 
@@ -39,12 +43,13 @@ DefectDojo API
 │  Stage 1. Deterministic Rules            │
 │  Stage 2. Exact Meta Match ──► ChromaDB  │
 │  Stage 3. Semantic Similarity ─► ChromaDB│
-│  Stage 4. LLM Analysis ────► LLM + RAG   │
+│  Stage 4. LLM Analysis ─► LLM + RAG      │
 │  Stage 5. Manual Review fallback         │
+│  Stage 6. (optional) Verification LLM    │
 └──────────────────────────────────────────┘
       │
       ▼
-  JSONL output  +  (опционально) комментарий в DefectDojo
+  JSONL output (вердикт + готовый текст комментария для DefectDojo)
 ```
 
 ---
@@ -74,6 +79,87 @@ pip install -r requirements.txt
 
 cp .env.example .env
 # Отредактировать .env: заполнить DD_API_URL, DD_API_KEY, путь к модели
+```
+
+---
+
+## Docker
+
+Альтернатива локальной установке — запуск в контейнере без настройки Python-окружения.
+
+### Предварительные требования
+
+- [Docker](https://docs.docker.com/get-docker/) 24+
+- Заполненный `.env` файл (скопируйте из `.env.example`)
+- Созданные директории для томов:
+
+```bash
+mkdir -p rag/chroma_db_metadata cache output log
+```
+
+### Сборка образа
+
+```bash
+# Стандартная сборка — режим API (Ollama / llama-server / OpenAI-совместимый)
+docker build -t ai-triage:{tag} .
+
+# С поддержкой локального сервера LLM (llama-cpp-python, ~+300 МБ)
+docker build --build-arg INCLUDE_LOCAL_LLM=true -t ai-triage:{tag} .
+
+# С нестандартной эмбеддинг-моделью
+docker build --build-arg EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2 -t ai-triage:{tag} .
+```
+
+> Первая сборка скачает зависимости (~2–3 ГБ) и эмбеддинг-модель `all-MiniLM-L6-v2` (~90 МБ).
+> Последующие сборки без изменения `requirements.txt` или модели используют кеш Docker и занимают секунды.
+
+### Запуск команд
+
+**Linux / macOS:**
+
+```bash
+# enrich — обогащение базы знаний
+docker run --rm \
+  --env-file .env \
+  -v $(pwd)/rag/chroma_db_metadata:/app/rag/chroma_db_metadata \
+  ai-triage enrich --product-name vault
+
+# triage — триаж сработок
+docker run --rm \
+  --env-file .env \
+  -v $(pwd)/rag/chroma_db_metadata:/app/rag/chroma_db_metadata \
+  -v $(pwd)/output:/app/output \
+  ai-triage triage --product-name vault
+```
+
+**Windows PowerShell:**
+
+```powershell
+docker run --rm --env-file .env -v ${PWD}/rag/chroma_db_metadata:/app/rag/chroma_db_metadata -v ${PWD}/output:/app/output -v ${PWD}/log:/app/log ai-triage triage --product-name vault
+```
+
+### Тома (Volumes)
+
+| Том в контейнере               | Назначение                                      |
+|--------------------------------|-------------------------------------------------|
+| `/app/rag/chroma_db_metadata`  | Векторная база знаний (ChromaDB) — **важно сохранять** |
+| `/app/llm`                     | GGUF-модели (только для локального режима)      |
+| `/app/cache`                   | Кеш findings из DefectDojo                      |
+| `/app/output`                  | JSONL с результатами триажа                     |
+| `/app/log`                     | Лог-файлы                                       |
+
+### docker-compose
+
+Файл `docker-compose.yml` уже включён в проект. Пример использования:
+
+```bash
+# Однократная команда
+docker compose run --rm ai-triage triage --product-name vault
+
+# С Ollama как LLM-бекендом — раскомментировать блок ollama в docker-compose.yml,
+# затем задать в .env: LLM_API_BASE_URL=http://ollama:11434/v1
+docker compose up ollama -d
+docker compose run --rm ai-triage triage --product-name vault
 ```
 
 ---
@@ -195,16 +281,21 @@ LLM_API_KEY=none
 Приложение работает в 3 режимах
 - обогащение RAG **enrich**
 - проведение триажа **triage**
-- проверка эффективности триажа (benchmark) **bench**
 
 ### enrich - обогащение векторной базы знаний (RAG / ChromaDB)
 Если БД будет пустой или недостаточно насыщена контекстом что считать false-positive то результат триажа будет 
 в большей части бесполезен. Т.к. модель не будет знать что относить к таким сработкам и намеренно выдавать статус need-review т.е. нужно проведение ручной проверки.
 
+```
+Options:
+  -p, --product-name  STR  имя продукта DefectDojo   [обязателен]
+      --dry-run          предпросмотр без записи в RAG
+```
+
 ```bash
-### Автоматическое наполнение из DefectDojo
-python main.py enrich --test-id 1234 --dry-run # предпросмотр без записи в RAG
-python main.py enrich --test-id 1234           # с записью в RAG
+### Обогащение по product-name (все FP findings продукта за все тесты)
+python main.py enrich --product-name vault --dry-run
+python main.py enrich --product-name vault
 
 # Пример вывода:
 ```json
@@ -245,7 +336,6 @@ store.add_entry(KnowledgeEntry(
     cve="CVE-2019-1543",
     component_name="openssl",
     component_version="1:1.1.1zd-1.el7",
-    test_id=298,
 ))
 ```
 
@@ -254,28 +344,24 @@ store.add_entry(KnowledgeEntry(
 
 ```
 Options:
-  -t, --test-id    INT   id теста DefectDojo [обязательный]
-  -c, --cache      PATH  файла для создания кеша (создаётся автоматически)
-  -o, --output     PATH  файл с результатами (по умолчанию пишет в ./output/triage_<id>.jsonl)
-  -fp,--false-positive   фильтровать результат (в output будут записана только размеченные как FP)
-      --post-comments    записать результат как комментарий в DD
+  -p, --product-name STR   имя продукта DefectDojo    [обязателен]
+  -c, --cache        PATH  файл кеша (создаётся автоматически)
+  -o, --output       PATH  файл с результатами (по умолчанию ./output/triage_product_<name>.jsonl)
+  -r, --repo         PATH  локальный чекаут репозитория для контекста исходного кода
+  -fp,--false-positive    фильтровать результат — в output попадут только FP
 ```
 
 ```bash
-# Базовый запуск
-python main.py triage --test-id 15540
+# Триаж по product-name (все активные сработки продукта за все тесты)
+python main.py triage --product-name vault
 
-# С автокомментированием в DefectDojo
-python main.py triage --test-id 15540 --post-comments
-
-# Из готового кеша (без обращения к API DD)
-python main.py triage --test-id 15540 --cache ./cache/findings_15540.json
-
-# Указать путь к результатам
-python main.py triage --test-id 15540 --output ./results/sca_15540.jsonl
-
-# Вывести в результат только false-positive
-python main.py triage --test-id 15540 --false-positive
+# Имя продукта с пробелами обязательно в кавычках — иначе оболочка разобьёт его
+# на несколько аргументов и команда завершится с ошибкой разбора параметров.
+# Файлы кеша и результата получат имя со сплошными подчёркиваниями: findings_product_Foo_bar_baz.json
+python main.py triage --product-name "Foo bar baz"
+python main.py triage --product-name vault --cache ./cache/findings_product_vault.json
+python main.py triage --product-name vault --output ./results/sca_product_vault.jsonl
+python main.py triage --product-name vault --false-positive
 
 # Ожидаемое поведение в процессе выполнения:
 # Пишется лог без ошибок ERROR
@@ -311,31 +397,18 @@ srv  update_slots: all slots are idle
 srv  log_server_r: done request: POST /v1/chat/completions 127.0.0.1 200
 ```
 
-### bench - проверка эффективности работы 
-Цель сравнить статус как был закрыт finding по итогу окончания триажа когда были проведен ручной анализ кода человеком. 
----
-```bash
-python main.py bench --input output/triage_15540.jsonl --test-id 15540
-
-# Вывод:
-Benchmark results 15540
-  Всего сравнений: 100
-  Верно:   90 (90%)
-  Неверно: 10 (10%) 
-```
----
-
 ### fetch — скачать findings в файл. 
-Ранее использовался для работы, сейчас не применятеся как ключевая команда. Цель скачать findings по test id
+Вспомогательная команда: скачивает активные findings продукта в JSON. По умолчанию пишет
+в тот же файл кеша, который потом читает `triage`.
 ```
 Options:
-  -t, --test-id  INT   ID теста                           [required]
-  -o, --output   PATH  Куда сохранить [./cache/findings_<id>.json]
+  -p, --product-name  STR   имя продукта DefectDojo        [required]
+  -o, --output        PATH  Куда сохранить [./cache/findings_product_<name>.json]
 ```
 
 ```bash
-python main.py fetch --test-id 15540
-python main.py fetch --test-id 15540 --output ./data/raw.json
+python main.py fetch --product-name vault
+python main.py fetch --product-name vault --output ./data/raw.json
 ```
 
 ---
@@ -364,6 +437,9 @@ Finding
   │   KB-записи → промпт → LLM → JSON {verdict, confidence, explanation}
   │
   ▼ Stage 5 — needs-review (ручной разбор)
+  │
+  ▼ Stage 6 — (опциональный) LLM verification
+              перепроверка за Stage 4 что не было допущено ошибок в выводах
 ```
 
 ---
@@ -466,33 +542,57 @@ print(result.flow_paths)      # список путей data-flow
 
 ---
 
-## Детерминистические правила
+## Правила промптов и детерминистические правила
 
-**Файл:** `analysis/rules.py`
+**Файл:** `prompt_rules.yaml` (путь настраивается через `PROMPT_RULES_PATH`, загрузка и матчинг — `analysis/prompt_rules.py`)
+
+Один YAML-файл управляет тремя механизмами:
+
+1. **`scanners:`** — базовые блоки системного промпта по типу сканера (Semgrep / Gitleaks / KICS / Trivy). `test_name` сравнивается как подстрока без учета регистра, применяется первый совпавший блок.
+2. **`rules:` с `verdict:`** — детерминированные правила: принудительный вердикт (`false-positive` / `needs-review`) с заданной confidence **без вызова LLM**. Срабатывает первое совпавшее по порядку в YAML (Шаг 1 пайплайна).
+3. **`rules:` с `prompt_addition:`** — точечные добавки к системному промпту LLM под конкретные rule id / пути / severity. Применяются все совпавшие.
+
+Условия внутри `match` объединяются по AND: `title`, `title_regex`, `vuln_id_from_tool`, `test_name`, `file_path_glob`, `file_path_regex`, `severity`, `cwe`, `notes_contains`, `is_mitigated`, `active`.
+
+Стартовые verdict-правила (мигрированы из бывшего `analysis/rules.py`):
 
 | Правило | Условие | Confidence |
 |---|---|---|
-| `severity_out_of_scope` | severity = Info / Low | 0.95 |
-| `test_file` | путь содержит `/test/`, `/spec/`, `/mock/` | 0.88 |
-| `documentation_file` | расширение `.md`, `.rst`, `.txt` | 0.90 |
-| `vendor_backport` | в notes: "патч от вендора", "backported" | 0.87 |
-| `already_mitigated` | `is_mitigated=True` и `active=False` | 0.95 |
+| `severity-out-of-scope` | severity = Info / Low | 0.95 |
+| `test-file` | путь содержит `/test/`, `/spec/`, `/mock/` | 0.88 |
+| `documentation-file` | расширение `.md`, `.rst`, `.txt` | 0.90 |
+| `vendor-backport` | в notes: "патч от вендора", "backported" | 0.87 |
+| `already-mitigated` | `is_mitigated=True` и `active=False` | 0.95 |
 
 Добавить своё правило:
 
-```python
-# analysis/rules.py
+```yaml
+# prompt_rules.yaml
+rules:
+  - name: internal-tool
+    match:
+      file_path_glob: "*internal_tool*"
+    verdict:
+      value: false-positive
+      confidence: 0.85
+      explanation: "Finding is in an internal tooling directory"
 
-def _internal_tool(finding: Dict) -> bool:
-    return "internal_tool" in (finding.get("file_path") or "")
-
-RULES.append(Rule(
-    name="internal_tool",
-    description="Finding is in an internal tooling directory",
-    check=_internal_tool,
-    confidence=0.85,
-))
+  - name: sqli-orm-hint
+    match:
+      title_regex: "sql-injection"
+      test_name: "Semgrep"
+    prompt_addition: |
+      This project uses SQLAlchemy ORM everywhere; raw SQL is only allowed in migrations.
 ```
+
+Проверка конфигурации и dry-run матчинга (без LLM и DefectDojo):
+
+```bash
+python main.py rules-check                                # валидация + сводка
+python main.py rules-check --finding test/test_SAST.json  # какие правила совпадут
+```
+
+Если `prompt_rules.yaml` отсутствует — пайплайн работает без Шага 1 и кастомных промптов; если файл невалиден — запуск завершается с ошибкой валидации.
 
 ---
 
@@ -512,8 +612,9 @@ ai_triage/
 ├── knowledge/
 │   ├── vector_store.py            # ChromaDB (cosine similarity)
 │   └── enrichment.py              # Pipeline обогащения KB
+├── prompt_rules.yaml              # per-scanner промпты + точечные правила (verdict / prompt_addition)
 ├── analysis/
-│   ├── rules.py                   # Детерминистические правила
+│   ├── prompt_rules.py            # схема, матчинг и загрузка prompt_rules.yaml
 │   ├── llm_analyzer.py            # LLM + RAG context
 │   └── reachability.py            # Semgrep / CodeQL / Composite
 ├── llm_backend/

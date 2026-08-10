@@ -13,7 +13,9 @@ from pydantic import BaseModel, Field
 
 
 class TriageAction(str, Enum):
+    # legacy: оставлен для чтения старых JSONL-результатов, новые правила используют PROMPT_RULE
     DETERMINISTIC_RULE = "deterministic_rule"
+    PROMPT_RULE = "prompt_rule"
     RAG_META_MATCH = "rag_meta_match"
     RAG_SIMILARITY_MATCH = "rag_similarity_match"
     LLM_ANALYSIS = "llm_analysis"
@@ -21,7 +23,8 @@ class TriageAction(str, Enum):
 
 
 class VulnerabilityId(BaseModel):
-    """Класс VulnerabilityId представляет идентификатор уязвимости, связанный с сработкой
+    """
+    Класс VulnerabilityId представляет идентификатор уязвимости, связанный с сработкой
     (например, CVE-2021-1234). Используется в классе Finding для хранения списка связанных уязвимостей.
     """
     vulnerability_id: str
@@ -29,8 +32,8 @@ class VulnerabilityId(BaseModel):
 
 class FindingNote(BaseModel):
     """
-    Класс FindingNote представляет структуру комментария findingв DefectDojo. 
-    Используется в приложении в файле models.py для нормализации данных сработки и удобного доступа к комментариям.
+    Класс FindingNote представляет структуру комментария findingв DefectDojo
+    Используется в приложении в файле models.py для нормализации данных сработки и удобного доступа к комментариям
     """
     id: int
     entry: str
@@ -40,10 +43,10 @@ class FindingNote(BaseModel):
 
 class Finding(BaseModel):
     """
-    Класс Finding представляет собой сработку безопасности, извлеченную из DefectDojo.
+    Класс Finding представляет собой сработку безопасности, извлеченную из DefectDojo
     Для номализации данных сработки используется pydantic. Этот класс включает в себя все релевантные поля,
     которые могут понадобиться для анализа, а также некоторые дополнительные поля для удобства доступа к данным
-    Используется в приложении в файле models.py для нормализации данных сработки и удобного доступа к полям сработки.
+    Используется в приложении в файле models.py для нормализации данных сработки и удобного доступа к полям сработки
     """
     id: int
     title: str
@@ -74,7 +77,7 @@ class Finding(BaseModel):
 
 class TriageResult(BaseModel):
     """
-    Класс TriageResult представляет результат триажа для конкретной сработки.
+    Класс TriageResult представляет результат триажа для конкретной сработки
     """
     finding_id: int
     action: TriageAction

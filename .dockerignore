@@ -1,0 +1,24 @@
+# ── Whitelist approach: ignore EVERYTHING, then re-include only source code ──
+# This guarantees no stray large files (.venv, models, caches, db dumps)
+# ever leak into the build context, no matter what sits in the folder.
+*
+
+# Re-include application source
+!main.py
+!__init__.py
+!requirements.txt
+!analysis/
+!config/
+!core/
+!integrations/
+!knowledge/
+!llm_backend/
+!triage/
+!rag/
+
+# Re-exclude junk / data that lives inside the whitelisted source dirs
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+rag/chroma_db_metadata/

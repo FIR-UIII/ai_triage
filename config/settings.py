@@ -1,6 +1,3 @@
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
 """
 Класс для определения конфигурации приложения. Использует pydantic для валидации и загрузки из .env 
 или переменных окружения.
@@ -10,6 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 2. Значения из файла .env (через model_config)
 3. Дефолты из Field(default=...) в классе Settings
 """
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 class Settings(BaseSettings):
     # DefectDojo
     dd_api_url: str = Field(..., validation_alias="DD_API_URL")
@@ -36,11 +37,23 @@ class Settings(BaseSettings):
     llm_api_model: str = Field("default", validation_alias="LLM_API_MODEL")
     llm_api_key: str = Field("none", validation_alias="LLM_API_KEY")
 
+    # Checker LLM (verification stage) — optional
+    checker_llm_enabled: bool = Field(False, validation_alias="CHECKER_LLM_ENABLED")
+    checker_llm_model_path: str = Field("./llm/Qwen3-4B.gguf", validation_alias="CHECKER_LLM_MODEL_PATH")
+    checker_llm_n_ctx: int = Field(8192, validation_alias="CHECKER_LLM_N_CTX")
+    checker_llm_n_threads: int = Field(8, validation_alias="CHECKER_LLM_N_THREADS")
+    checker_llm_temperature: float = Field(0.2, validation_alias="CHECKER_LLM_TEMPERATURE")
+    checker_llm_api_base_url: str = Field("", validation_alias="CHECKER_LLM_API_BASE_URL")
+    checker_llm_api_model: str = Field("default", validation_alias="CHECKER_LLM_API_MODEL")
+    checker_llm_api_key: str = Field("none", validation_alias="CHECKER_LLM_API_KEY")
+
     # Source code context
     code_context_max_chars: int = Field(0, validation_alias="CODE_CONTEXT_MAX_CHARS")
     code_context_lines: int = Field(50, validation_alias="CODE_CONTEXT_LINES")
 
     # App
+    # Путь к YAML с per-scanner промптами и точечными правилами; файл опционален
+    prompt_rules_path: str = Field("./prompt_rules.yaml", validation_alias="PROMPT_RULES_PATH")
     cache_dir: str = Field("./cache", validation_alias="CACHE_DIR")
     output_dir: str = Field("./output", validation_alias="OUTPUT_DIR")
     log_level: str = Field("INFO", validation_alias="LOG_LEVEL")

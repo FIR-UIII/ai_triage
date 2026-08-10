@@ -1,0 +1,150 @@
+[
+  {
+    "id": 3646519,
+    "tags": [],
+    "request_response": {
+      "req_resp": []
+    },
+    "accepted_risks": [],
+    "push_to_jira": false,
+    "age": 15,
+    "sla_days_remaining": 15,
+    "finding_meta": [],
+    "related_fields": null,
+    "jira_creation": null,
+    "jira_change": null,
+    "display_status": "Active",
+    "finding_groups": [],
+    "vulnerability_ids": [],
+    "reporter": 1,
+    "title": "rules.contrib.nodejsscan.node_nosqli_injection",
+    "date": "2026-06-22",
+    "sla_start_date": null,
+    "sla_expiration_date": "2026-07-22",
+    "cwe": 943,
+    "epss_score": null,
+    "epss_percentile": null,
+    "cvssv3": null,
+    "cvssv3_score": null,
+    "url": null,
+    "severity": "High",
+    "description": "**Result message:** Untrusted user input in findOne() function can result in NoSQL Injection.\n**Snippet:**\n```      const record = await this.model.findOne({\n        attributes: ['recordId', [Sequelize.fn('MAX', Sequelize.col('version')), 'maxVersion']],\n        where: {\n          categoryCode,\n          recordId: { [Op.ne]: recordId },\n        } as unknown as any,\n        group: ['recordId'],\n        having: Sequelize.where(Sequelize.fn('MAX', Sequelize.col('version')), Op.eq, Sequelize.literal('MAX(version)')),\n      });```\n",
+    "mitigation": null,
+    "impact": null,
+    "steps_to_reproduce": null,
+    "severity_justification": null,
+    "references": null,
+    "active": true,
+    "verified": false,
+    "false_p": false,
+    "duplicate": false,
+    "out_of_scope": false,
+    "risk_accepted": false,
+    "under_review": false,
+    "last_status_update": "2026-07-07T14:43:57.689233Z",
+    "under_defect_review": false,
+    "is_mitigated": true,
+    "thread_id": 0,
+    "mitigated": "2026-07-07T14:43:57.656554Z",
+    "numerical_severity": "S1",
+    "last_reviewed": "2026-07-06T12:46:50.503316Z",
+    "param": null,
+    "payload": null,
+    "hash_code": "4460c1a1683a6e15754e23af98c272a57e7cac5029a48d7cb0fbf730eaf52b27",
+    "line": 177,
+    "file_path": "src/modules/insuredPersonCategoryCodesDictionary/adapters/db/InsuredPersonCategoryCodesDictionaryDB.adapter.ts",
+    "component_name": null,
+    "component_version": null,
+    "static_finding": true,
+    "dynamic_finding": false,
+    "created": "2026-06-22T08:44:24.924068Z",
+    "scanner_confidence": null,
+    "unique_id_from_tool": "542c60734d6e5cb40263dbe19bc279fdcd69c0f1aa1e9b738637ce04eea577e6b250a6c85d554b83b4c54062a6dc71ec51a66215a8b2d17aea144650e58704da_0",
+    "vuln_id_from_tool": "rules.contrib.nodejsscan.node_nosqli_injection",
+    "sast_source_object": null,
+    "sast_sink_object": null,
+    "sast_source_line": null,
+    "sast_source_file_path": null,
+    "nb_occurences": 1,
+    "publish_date": null,
+    "service": null,
+    "planned_remediation_date": null,
+    "planned_remediation_version": null,
+    "effort_for_fixing": null,
+    "test": 1065,
+    "duplicate_finding": null,
+    "review_requested_by": null,
+    "defect_review_requested_by": null,
+    "mitigated_by": 70,
+    "last_reviewed_by": 572,
+    "sonarqube_issue": null,
+    "endpoints": [],
+    "reviewers": [],
+    "notes": [
+      {
+        "id": 2584059,
+        "author": {
+          "id": 572,
+          "username": "gren-d-alssamoylov",
+          "first_name": "",
+          "last_name": "GREN-d-AlSSamoylov"
+        },
+        "editor": null,
+        "history": [
+          {
+            "id": 14758,
+            "current_editor": {
+              "id": 572,
+              "username": "gren-d-alssamoylov",
+              "first_name": "",
+              "last_name": "GREN-d-AlSSamoylov"
+            },
+            "note_type": null,
+            "data": "Сработка на запросе через ORM Sequelize. Sequelize подставляет значения через параметризованные запросы (bind/replacements), поэтому SQL/NoSQL-инъекция здесь невозможна. Ложное срабатывание",
+            "time": "2026-07-06T12:46:50.503316Z"
+          }
+        ],
+        "note_type": null,
+        "entry": "Сработка на запросе через ORM Sequelize. Sequelize подставляет значения через параметризованные запросы (bind/replacements), поэтому SQL/NoSQL-инъекция здесь невозможна. Ложное срабатывание",
+        "date": "2026-07-06T12:46:50.503316Z",
+        "private": false,
+        "edited": false,
+        "edit_time": "2026-07-06T12:46:50.502941Z"
+      },
+      {
+        "id": 2581874,
+        "author": {
+          "id": 179,
+          "username": "AESudilovsky",
+          "first_name": "",
+          "last_name": ""
+        },
+        "editor": null,
+        "history": [
+          {
+            "id": 14662,
+            "current_editor": {
+              "id": 179,
+              "username": "AESudilovsky",
+              "first_name": "",
+              "last_name": ""
+            },
+            "note_type": null,
+            "data": "Ложное срабатывание: все user input идут исключительно через безопасные replacement / параметризацию",
+            "time": "2026-07-03T09:12:00.516337Z"
+          }
+        ],
+        "note_type": null,
+        "entry": "Ложное срабатывание: все user input идут исключительно через безопасные replacement / параметризацию",
+        "date": "2026-07-03T09:12:00.516337Z",
+        "private": false,
+        "edited": false,
+        "edit_time": "2026-07-03T09:12:00.515924Z"
+      }
+    ],
+    "files": [],
+    "found_by": [
+      105
+    ]
+  }
+]

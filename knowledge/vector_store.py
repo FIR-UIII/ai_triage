@@ -15,6 +15,7 @@ import os
 from typing import Dict, List, Optional
 
 import chromadb
+from chromadb.config import Settings
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 from core.models import KnowledgeEntry
@@ -33,10 +34,8 @@ _SIMILARITY_THRESHOLD_DEFAULT = 0.75
 
 
 class VectorStore:
-    """ChromaDB-backed vector knowledge base for false-positive patterns.
-
-    Uses cosine distance explicitly so score = 1 - distance ∈ [-1, 1].
-    Requires an explicit embedding model name to avoid silent model mismatches.
+    """
+    Класс для работы с ChromaDB. Инициализирует БД и готовит переменные для дальейшей работы
     """
 
     def __init__(
@@ -55,7 +54,12 @@ class VectorStore:
         logger.debug("Embedding model loaded OK")
 
         logger.debug("Opening ChromaDB PersistentClient at: %s", persist_directory)
-        self.client = chromadb.PersistentClient(path=persist_directory)
+        # Disable ChromaDB anonymized telemetry (PostHog) — avoids network
+        # retries/warnings when running offline (host us.i.posthog.com unreachable).
+        self.client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(anonymized_telemetry=False),
+        )
         logger.debug("ChromaDB client ready")
 
         # Open collection: try existing first (without embedding_function to
@@ -147,14 +151,19 @@ class VectorStore:
         self,
         cve: Optional[str],
         component_name: Optional[str],
+        file_path: Optional[str] = None,
+        rule: Optional[str] = None,
         n_results: int = 5,
     ) -> List[Dict]:
         """
-        Точный поиск по метаданным CVE и/или имени компонента. Возвращает список записей, которые точно соответствуют 
+        Точный поиск по метаданным CVE и/или имени компонента. Возвращает список записей, которые точно соответствуют
         заданным метаданным. Если оба параметра указаны, возвращаются записи, которые соответствуют обоим условиям.
         Если ни один из параметров не указан, возвращается пустой список.
+        Если CVE не задан, поиск производится по file_path.
+        Необязательный rule (title сработки) дополнительно сужает поиск — нужен для сканеров,
+        у которых один file_path даёт много разных срабатываний (см. TriageEngine._meta_match_rule).
         """
-        if not cve and not component_name:
+        if not cve and not component_name and not file_path and not rule:
             return []
 
         conditions = []
@@ -162,6 +171,10 @@ class VectorStore:
             conditions.append({"cve": {"$eq": cve}})
         if component_name:
             conditions.append({"component_name": {"$eq": component_name}})
+        if file_path:
+            conditions.append({"file_path": {"$eq": file_path}})
+        if rule:
+            conditions.append({"rule": {"$eq": rule}})
 
         where = {"$and": conditions} if len(conditions) > 1 else conditions[0]
 
@@ -252,7 +265,7 @@ class VectorStore:
                 documents=[entry.document],
                 metadatas=[entry.to_chroma_metadata()],
             )
-            logger.info("Added knowledge entry: %s", entry.id)
+            logger.debug("Added knowledge entry: %s", entry.id)
             return True
         except Exception as e:
             logger.error("Failed to add entry %s: %s", entry.id, e)

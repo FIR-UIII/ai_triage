@@ -7,8 +7,8 @@
 - KnowledgeEnricher: Оркестратор всего процесса обогащения. Он извлекает ложные срабатывания для данного теста,
     обрабатывает каждую сработку, извлекая причину FP, проверяя на дубликаты и добавляя уникальные записи в векторное хранилище.
 Ключевые функции:
-- enrich_from_product(test_id, dry_run): Главная функция для запуска процесса обогащения для всех ложных срабатываний, 
-связанных с данным test_id. Возвращает статистику обогащения.
+- enrich_from_product_name(product_name, dry_run): Главная функция для запуска процесса обогащения
+для всех ложных срабатываний продукта. Возвращает статистику обогащения.
 - _process_one(finding, stats, dry_run): Обрабатывает одну сработку: извлекает причину FP, проверяет на дубликаты и добавляет в хранилище.
 - _build_document(reason, cve, component, component_version): 
 Статический метод для композиции нормализованного текстового документа из его составных частей (причина, CVE, компонент).
@@ -111,9 +111,9 @@ class KnowledgeEnricher:
         self.extractor = FPReasonExtractor(llm_client)
         self.dedup_threshold = dedup_threshold
 
-    def enrich_from_product(self, test_id: int, dry_run: bool = False) -> Dict:
+    def enrich_from_product_name(self, product_name: str, dry_run: bool = False) -> Dict:
         """
-        Основная функция для обогащения базы знаний на основе ложных срабатываний из DefectDojo для данного test_id.
+        Обогащение базы знаний на основе ложных срабатываний по имени продукта.
         """
         stats = {
             "fetched": 0,
@@ -124,34 +124,28 @@ class KnowledgeEnricher:
             "errors": 0,
         }
 
-        logger.debug("enrich_from_product: fetching FPs for product_id=%d ...", test_id)
-        fps = self.dd.fetch_false_positives_by_test_id(test_id)
+        logger.debug("enrich_from_product_name: fetching FPs for product_name=%r ...", product_name)
+        fps = self.dd.fetch_false_positives_by_product_name(product_name)
         stats["fetched"] = len(fps)
-        logger.debug("enrich_from_product: fetched %d false positives", len(fps))
-        logger.info(
-            "Enriching from %d false positives (test_id=%d)", len(fps), test_id
-        )
+        logger.info("Enriching from %d false positives (product_name=%r)", len(fps), product_name)
 
         for i, finding in enumerate(fps, 1):
             stats["processed"] += 1
             finding_id = finding.get("id")
-            logger.debug("enrich_from_product: processing finding %d/%d (id=%s) ...",
+            logger.debug("enrich_from_product_name: processing finding %d/%d (id=%s) ...",
                     i, len(fps), finding_id)
             try:
                 self._process_one(finding, stats, dry_run)
             except Exception as e:
                 logger.error("Error processing finding %s: %s", finding_id, e)
-                logger.debug("enrich_from_product: ERROR on finding %s: %s", finding_id, e)
                 stats["errors"] += 1
 
-        logger.debug("enrich_from_product: DONE, stats=%s", stats)
         logger.info("Enrichment complete: %s", stats)
         return stats
 
-
     def _process_one(self, finding: Dict, stats: Dict, dry_run: bool) -> None:
         """
-        Обрабатывает одно ложное срабатывание, извлекая причину и добавляя запись в базу знаний.
+        Обрабатывает одно ложное срабатывание, извлекая причину и добавляя запись в базу знаний
         """
         finding_id = finding.get("id")
 
@@ -210,7 +204,7 @@ class KnowledgeEnricher:
 
         if dry_run:
             logger.debug("  _process_one(%s): [DRY RUN] would add entry", finding_id)
-            logger.info("[DRY RUN] Would add entry for finding %s: %s", finding_id, document[:80])
+            logger.debug("[DRY RUN] Would add entry for finding %s: %s", finding_id, document[:80])
             stats["added"] += 1
         elif self.store.add_entry(entry):
             logger.debug("  _process_one(%s): entry added", finding_id)
