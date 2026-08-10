@@ -43,8 +43,9 @@ DefectDojo API
 │  Stage 1. Deterministic Rules            │
 │  Stage 2. Exact Meta Match ──► ChromaDB  │
 │  Stage 3. Semantic Similarity ─► ChromaDB│
-│  Stage 4. LLM Analysis ────► LLM + RAG   │
+│  Stage 4. LLM Analysis ─► LLM + RAG      │
 │  Stage 5. Manual Review fallback         │
+│  Stage 6. (optional) Verification LLM    │
 └──────────────────────────────────────────┘
       │
       ▼
@@ -436,6 +437,9 @@ Finding
   │   KB-записи → промпт → LLM → JSON {verdict, confidence, explanation}
   │
   ▼ Stage 5 — needs-review (ручной разбор)
+  │
+  ▼ Stage 6 — (опциональный) LLM verification
+              перепроверка за Stage 4 что не было допущено ошибок в выводах
 ```
 
 ---
