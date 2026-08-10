@@ -61,9 +61,6 @@ Respond with valid JSON only:
   "explanation": "<string>"
 }}"""
 
-# Обратная совместимость: полный шаблон, как раньше (используется командой dataset в main.py)
-_SYSTEM_PROMPT = _SYSTEM_PROMPT_BASE + _RESPONSE_FORMAT
-
 # Системный промпт для проверяющего LLM, который проверяет результат основного LLM
 _VERIFICATION_SYSTEM_PROMPT = """\
 You are an expert security reviewer validating an automated triage decision.
@@ -148,7 +145,8 @@ class LLMAnalyzer:
             )
         # Контракт формата ответа идет последним; format() снимает экранирование {{ }}
         parts.append(_RESPONSE_FORMAT.format())
-        # Блоки уже содержат ведущие переводы строк — без добавок промпт идентичен _SYSTEM_PROMPT
+        # Блоки уже содержат ведущие переводы строк — без добавок промпт идентичен
+        # _SYSTEM_PROMPT_BASE + _RESPONSE_FORMAT
         system_prompt = "".join(parts)
         user_prompt = (
             "Analyse this security finding:\n"

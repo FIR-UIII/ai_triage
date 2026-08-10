@@ -9,8 +9,8 @@ services:
       - ./log:/app/log
       # Uncomment for local GGUF mode (also set INCLUDE_LOCAL_LLM=true in build.args):
       # - ./llm:/app/llm
-    # Example: run triage for test 15540
-    # command: ["triage", "--test-id", "15540"]
+    # Example: run triage for a product (имя с пробелами — отдельным аргументом, без кавычек внутри)
+    # command: ["triage", "--product-name", "Foo bar baz"]
   # ---------------------------------------------------------------------------
   # phi:
   #   image: ghcr.io/ggml-org/llama.cpp:server-cuda

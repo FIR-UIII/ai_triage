@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
 AI Triage – автоматически производит триаж уязвимостей с использованием RAG + LLM
-Основной файл приложения, реализующий CLI с помощью Typer. Содержит команды для триажа, обогащения базы знаний, скачивания данных и бенчмаркинга.
+Основной файл приложения, реализующий CLI с помощью Typer. Содержит команды для триажа, обогащения базы знаний и скачивания данных.
 Команды:
-- triage: выполняет триаж сработок по test_id, сохраняет результаты в JSONL и может постить комментарии в DefectDojo
+- triage: выполняет триаж сработок продукта и сохраняет результаты в JSONL
 - enrich: обогащает базу знаний на основе закрытых false-positive сработок
-- fetch: скачивает findings по test_id и сохраняет их в JSON файл
-- bench: сравнивает результаты AI-триажа с окончательной ручной разметкой из DefectDojo
+- fetch: скачивает findings по имени продукта и сохраняет их в JSON файл
 - rag-delete: удаляет данные из RAG базы знаний по finding ID, документу или правилу
 - rag-add: добавляет один finding в базу знаний RAG на основе JSON файла с данными сработки
 - rules-check: валидирует prompt_rules.yaml и опционально показывает, какие правила совпадут с сработками из JSON файла
@@ -15,6 +14,7 @@ AI Triage – автоматически производит триаж уяз�
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -23,6 +23,18 @@ import typer
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Консоль Windows по умолчанию cp1251, а typer/rich рисуют сообщения об ошибках в рамке
+# из символов ╭─│╰ — они в cp1251 не кодируются. В результате любая ошибка (например,
+# ненайденный продукт) подменялась UnicodeEncodeError, и настоящая причина не доходила
+# до пользователя. Переводим вывод в UTF-8 до первого обращения к typer.
+for _stream in (sys.stdout, sys.stderr):
+    _reconfigure = getattr(_stream, "reconfigure", None)
+    if _reconfigure is not None:
+        try:
+            _reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):  # поток перенаправлен/закрыт — вывод не критичен
+            pass
 
 # Отключаем телеметрию — иначе будут запросы от фреймворков к внешним сервисам
 os.environ.setdefault("OPENAI_DISABLE_SEND_TELEMETRY", "1")
@@ -130,29 +142,20 @@ def _build_engine(settings, vector_store=None, llm_client=None, repo_path=None):
     )
 
 
-def _load_or_fetch(dd_client, test_id: int, cache_file: str, logger) -> list:
+def _product_slug(product_name: str) -> str:
     """
-    Функция подгрузки findings. Если есть кеш - то загружает из него, если нет вызывает функцию для скачивания по test id если нет кеша 
+    Превращает имя продукта в безопасный фрагмент имени файла: "Foo bar baz" -> "Foo_bar_baz".
+    Заменяются не только пробелы, но и любые символы, недопустимые в путях Windows/Linux
+    (\\ / : * ? " < > |), иначе продукт с таким именем ронял открытие файла кеша.
+    Буквы (в т.ч. кириллица), цифры, '.', '-' и '_' сохраняются.
     """
-    cache_path = Path(cache_file)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if cache_path.exists(): # создание файла для кеширования
-        with open(cache_path, "r", encoding="utf-8") as f:
-            findings = json.load(f)
-        logger.info("Loaded %d findings from cache: %s", len(findings), cache_file)
-        return findings
-
-    findings = dd_client.fetch_findings(test_id=test_id) # формирование запроса на скачивание если нет кеша
-    with open(cache_path, "w", encoding="utf-8") as f:
-        json.dump(findings, f, ensure_ascii=False, indent=2)
-    logger.info("Fetched and cached %d findings to: %s", len(findings), cache_file)
-    return findings
+    slug = re.sub(r"[^\w.-]+", "_", product_name.strip(), flags=re.UNICODE).strip("._-")
+    return slug or "product"
 
 
 def _load_or_fetch_product(dd_client, product_name: str, cache_file: str, logger) -> list:
     """
-    Аналог _load_or_fetch, но для product_name. Загружает findings из кеша или скачивает по имени продукта.
+    Функция подгрузки findings. Если есть кеш — загружает из него, иначе скачивает по имени продукта.
     """
     cache_path = Path(cache_file)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -172,16 +175,12 @@ def _load_or_fetch_product(dd_client, product_name: str, cache_file: str, logger
 
 @app.command()
 def triage(
-    test_id: Optional[int] = typer.Option(None, "--test-id", "-t", help="DefectDojo test ID"),
-    product_name: Optional[str] = typer.Option(None, "--product-name", "-p", help="DefectDojo product name"),
+    product_name: str = typer.Option(..., "--product-name", "-p", help="DefectDojo product name"),
     cache_file: Optional[str] = typer.Option(
         None, "--cache", "-c", help="Path to findings cache JSON (auto-created if absent)"
     ),
     output_file: Optional[str] = typer.Option(
         None, "--output", "-o", help="Output JSONL file path"
-    ),
-    post_comments: bool = typer.Option(
-        False, "--post-comments", help="Post triage results as DefectDojo comments"
     ),
     repo: Optional[str] = typer.Option(
         None, "--repo", "-r", help="Path to local repository checkout for source code context"
@@ -193,13 +192,6 @@ def triage(
     """
     Команда для триажа findings, я не знаю как это работает, наверное магия AI =)
     """
-    if not test_id and not product_name:
-        typer.echo("Укажите --test-id или --product-name")
-        raise typer.Exit(1)
-    if test_id and product_name:
-        typer.echo("Укажите только один из флагов: --test-id или --product-name")
-        raise typer.Exit(1)
-
     settings = _load_settings()
     _setup_logging(settings.log_level)
     logger = logging.getLogger(__name__)
@@ -207,17 +199,11 @@ def triage(
     dd = _build_dd_client(settings)
     engine = _build_engine(settings, repo_path=repo)
 
-    if product_name:
-        safe_name = product_name.replace(" ", "_")
-        cache = cache_file or f"{settings.cache_dir}/findings_product_{safe_name}.json"
-        output = output_file or f"{settings.output_dir}/triage_product_{safe_name}.jsonl"
-        Path(output).parent.mkdir(parents=True, exist_ok=True)
-        findings = _load_or_fetch_product(dd, product_name, cache, logger)
-    else:
-        cache = cache_file or f"{settings.cache_dir}/findings_{test_id}.json"
-        output = output_file or f"{settings.output_dir}/triage_{test_id}.jsonl"
-        Path(output).parent.mkdir(parents=True, exist_ok=True)
-        findings = _load_or_fetch(dd, test_id, cache, logger)
+    safe_name = _product_slug(product_name)
+    cache = cache_file or f"{settings.cache_dir}/findings_product_{safe_name}.json"
+    output = output_file or f"{settings.output_dir}/triage_product_{safe_name}.jsonl"
+    Path(output).parent.mkdir(parents=True, exist_ok=True)
+    findings = _load_or_fetch_product(dd, product_name, cache, logger)
 
     # статистика
     fp_count = 0
@@ -236,9 +222,6 @@ def triage(
             if not false_positive or result.verdict == "false-positive":
                 out.write(json.dumps(finding, ensure_ascii=False) + "\n")
 
-            if post_comments and result.dd_comment:
-                dd.add_comment(finding["id"], result.dd_comment)
-
     typer.echo(
         f"Успешно выполнено. \n К ложным сработкам отнесено: {fp_count} \n Требуют ручного анализа {review_count} \n Файл с результатами {output}"
     )
@@ -246,11 +229,8 @@ def triage(
 
 @app.command()
 def enrich(
-    test_id: Optional[int] = typer.Option(
-        None, "--test-id", "-t", help="DefectDojo test ID"
-    ),
-    product_name: Optional[str] = typer.Option(
-        None, "--product-name", "-p", help="DefectDojo product name"
+    product_name: str = typer.Option(
+        ..., "--product-name", "-p", help="DefectDojo product name"
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Preview changes without writing to knowledge base"
@@ -259,13 +239,6 @@ def enrich(
     """
     Команда для обогащения базы знаний на основе закрытых false-positive findings.
     """
-    if not test_id and not product_name:
-        typer.echo("Укажите --test-id или --product-name")
-        raise typer.Exit(1)
-    if test_id and product_name:
-        typer.echo("Укажите только один из флагов: --test-id или --product-name")
-        raise typer.Exit(1)
-
     settings = _load_settings()
     _setup_logging(settings.log_level)
     logger = logging.getLogger(__name__)
@@ -294,213 +267,39 @@ def enrich(
     )
 
     logger.debug("enrich: starting enrichment pipeline ...")
-    if product_name:
-        logger.debug("enrich: dry_run=%s, product_name=%r", dry_run, product_name)
-        stats = enricher.enrich_from_product_name(product_name=product_name, dry_run=dry_run)
-    else:
-        logger.debug("enrich: dry_run=%s, test_id=%d", dry_run, test_id)
-        stats = enricher.enrich_from_product(test_id=test_id, dry_run=dry_run)
+    logger.debug("enrich: dry_run=%s, product_name=%r", dry_run, product_name)
+    stats = enricher.enrich_from_product_name(product_name=product_name, dry_run=dry_run)
     logger.debug("enrich: pipeline complete")
     typer.echo(json.dumps(stats, indent=2))
 
 
 @app.command()
 def fetch(
-    test_id: int = typer.Option(..., "--test-id", "-t", help="DefectDojo test ID"),
+    product_name: str = typer.Option(..., "--product-name", "-p", help="DefectDojo product name"),
     output: Optional[str] = typer.Option(
         None, "--output", "-o", help="Output JSON file (default: cache dir)"
     ),
 ) -> None:
     """
-    Функция для скачивания findings по test id и сохранения их в JSON файл. 
-    Если указать --output, то сохраняет в него, иначе сохраняет в папку кеша.
+    Функция для скачивания findings по имени продукта и сохранения их в JSON файл.
+    Если указать --output, то сохраняет в него, иначе сохраняет в папку кеша —
+    туда же, откуда команда triage читает кеш.
     """
     settings = _load_settings()
     _setup_logging(settings.log_level)
     logger = logging.getLogger(__name__)
 
     dd = _build_dd_client(settings)
-    dest = output or f"{settings.cache_dir}/findings_{test_id}.json"
+    safe_name = _product_slug(product_name)
+    dest = output or f"{settings.cache_dir}/findings_product_{safe_name}.json"
     Path(dest).parent.mkdir(parents=True, exist_ok=True)
 
-    findings = dd.fetch_findings(test_id=test_id)
+    findings = dd.fetch_findings_by_product_name(product_name=product_name)
     with open(dest, "w", encoding="utf-8") as f:
         json.dump(findings, f, ensure_ascii=False, indent=2)
 
     logger.info("Saved %d findings to %s", len(findings), dest)
     typer.echo(f"Saved {len(findings)} findings to {dest}")
-
-
-@app.command()
-def bench(
-    input_file: str = typer.Option(
-        ..., "--input", "-i", help="Path to JSONL file with previous triage results"
-    ),
-    test_id: int = typer.Option(
-        ..., "--test-id", "-t", help="DefectDojo test ID to fetch final human-triaged findings"
-    ),
-) -> None:
-    """
-    Бенчмарк: сравнение результатов AI-триажа с окончательной ручной разметкой из DefectDojo.
-    """
-    settings = _load_settings()
-    _setup_logging(settings.log_level)
-    logger = logging.getLogger(__name__)
-
-    # 1. Загрузить результаты AI-триажа из input файла
-    input_path = Path(input_file)
-    if not input_path.exists():
-        typer.echo(f"Input file not found: {input_file}")
-        raise typer.Exit(1)
-    
-    logger.debug("bench: input file загружен input_file=%s, test_id=%d", input_file, test_id)
-    ai_results: dict[int, str] = {}  # finding_id -> verdict
-    with open(input_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            finding = json.loads(line)
-            fid = finding.get("id")
-            logger.debug("bench: работаем с finding id=%s", fid)
-            verdict = (finding.get("triage_result") or {}).get("verdict", "")
-            if fid is not None:
-                ai_results[fid] = verdict
-
-    if not ai_results:
-        typer.echo("No triage results found in input file")
-        raise typer.Exit(1)
-    typer.echo(f"  Загружено {len(ai_results)} AI-вердиктов")
-
-    # 2. Скачать окончательно размеченные findings из DefectDojo
-    typer.echo(f"Загрузка findings из DefectDojo (test_id={test_id}) ...")
-    dd = _build_dd_client(settings)
-    human_findings = dd.fetch_all_findings(test_id=test_id)
-    typer.echo(f"  Получено {len(human_findings)} findings из DefectDojo")
-
-    human_status: dict[int, bool] = {}  # finding_id -> is false_positive
-    for f in human_findings:
-        human_status[f["id"]] = bool(f.get("false_p", False))
-
-    # 3. Сравнение
-    typer.echo("Сравнение результатов ...")
-    correct = 0
-    incorrect = 0
-    total_compared = 0
-
-    for fid, ai_verdict in ai_results.items():
-        if fid not in human_status:
-            logger.warning("Finding %d from input not found in DefectDojo test %d, skipping", fid, test_id)
-            continue
-
-        total_compared += 1
-        ai_is_fp = ai_verdict == "false-positive"
-        human_is_fp = human_status[fid]
-
-        if ai_is_fp == human_is_fp:
-            correct += 1
-        else:
-            incorrect += 1
-
-    # 4. Вывод статистики
-    if total_compared == 0:
-        typer.echo("No matching findings found for comparison")
-        raise typer.Exit(1)
-
-    correct_pct = correct / total_compared * 100
-    incorrect_pct = incorrect / total_compared * 100
-
-    typer.echo(f"Benchmark (test-id={test_id}):")
-    typer.echo(f"  Всего сравнений: {total_compared}")
-    typer.echo(f"  Верно:   {correct} ({correct_pct:.1f}%)")
-    typer.echo(f"  Неверно: {incorrect} ({incorrect_pct:.1f}%)")
-
-
-@app.command()
-def dataset(
-    input_file: str = typer.Option(
-        ..., "--input", "-i", help="Path to triage results JSONL (output of the triage command)"
-    ),
-    output_file: Optional[str] = typer.Option(
-        None, "--output", "-o", help="Output ChatML JSONL file path"
-    ),
-    only_fp: bool = typer.Option(
-        False, "--only-fp", help="Include only false-positive findings"
-    ),
-    only_reviewed: bool = typer.Option(
-        False, "--only-reviewed", help="Include only needs-review findings"
-    ),
-) -> None:
-    """
-    Подготовка датасета для дообучения модели в формате ChatML из результатов триажа.
-    Каждая строка входного JSONL превращается в пример {messages: [system, user, assistant]}.
-    """
-    from analysis.llm_analyzer import _LLM_FINDING_FIELDS, _SYSTEM_PROMPT
-
-    settings = _load_settings()
-    _setup_logging(settings.log_level)
-    logger = logging.getLogger(__name__)
-
-    input_path = Path(input_file)
-    if not input_path.exists():
-        typer.echo(f"Input file not found: {input_file}")
-        raise typer.Exit(1)
-
-    output = output_file or str(input_path.with_stem(input_path.stem + "_chatml"))
-    Path(output).parent.mkdir(parents=True, exist_ok=True)
-
-    # Статический системный промпт без RAG/code-context — модель учится рассуждать по данным сработки
-    static_system = _SYSTEM_PROMPT.format(
-        rag_context="No prior false-positive context available for this finding.",
-        code_context_block="",
-    )
-
-    written = 0
-    skipped = 0
-
-    with open(input_path, "r", encoding="utf-8") as inp, \
-         open(output, "w", encoding="utf-8") as out:
-        for line in inp:
-            line = line.strip()
-            if not line:
-                continue
-            finding = json.loads(line)
-            triage_result = finding.get("triage_result") or {}
-            verdict = triage_result.get("verdict", "")
-
-            if only_fp and verdict != "false-positive":
-                skipped += 1
-                continue
-            if only_reviewed and verdict != "needs-review":
-                skipped += 1
-                continue
-            if not verdict:
-                skipped += 1
-                continue
-
-            normalized = {k: finding[k] for k in _LLM_FINDING_FIELDS if k in finding and finding[k] is not None}
-            user_content = "Analyse this security finding:\n" + json.dumps(normalized, ensure_ascii=False, indent=2)
-            assistant_content = json.dumps(
-                {
-                    "verdict": triage_result.get("verdict"),
-                    "confidence": triage_result.get("confidence"),
-                    "explanation": triage_result.get("explanation"),
-                },
-                ensure_ascii=False,
-            )
-
-            record = {
-                "messages": [
-                    {"role": "system", "content": static_system},
-                    {"role": "user", "content": user_content},
-                    {"role": "assistant", "content": assistant_content},
-                ]
-            }
-            out.write(json.dumps(record, ensure_ascii=False) + "\n")
-            written += 1
-
-    logger.info("dataset: written=%d skipped=%d -> %s", written, skipped, output)
-    typer.echo(f"Записано примеров: {written}, пропущено: {skipped}\nФайл: {output}")
 
 
 @app.command()
@@ -643,6 +442,10 @@ def rules_check(
     addition_rules = [r for r in config.rules if r.prompt_addition is not None]
     typer.echo(f"Конфигурация валидна: {path}")
     typer.echo(f"  Scanner-блоков: {len(config.scanners)} ({', '.join(b.test_name for b in config.scanners)})")
+    typer.echo(
+        f"  Meta-match блоков: {len(config.meta_match)} "
+        f"({', '.join(f'{b.test_name}:{b.require}' for b in config.meta_match) or '-'})"
+    )
     typer.echo(f"  Verdict-правил: {len(verdict_rules)} ({', '.join(r.name for r in verdict_rules)})")
     typer.echo(f"  Prompt-addition правил: {len(addition_rules)} ({', '.join(r.name for r in addition_rules)})")
 
@@ -666,4 +469,13 @@ def rules_check(
 
 
 if __name__ == "__main__":
-    app()
+    from core.exceptions import DDApiError
+
+    try:
+        app()
+    except DDApiError as e:
+        # Печатаем причину обычным текстом: rich-трейсбек рисует рамку из символов,
+        # которых нет в cp1251, и настоящее сообщение до консоли не доходит
+        logging.getLogger(__name__).error("DefectDojo error: %s", e)
+        typer.echo(f"Ошибка обращения к DefectDojo: {e}", err=True)
+        raise SystemExit(2)

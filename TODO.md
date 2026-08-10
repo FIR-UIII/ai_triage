@@ -126,7 +126,7 @@ dd UI добавить вывод файла и потом добавить на
 dd UI при загрузке json от AI - реализовать кнопку применить комментарий ИИ
 
 False negative KICS
-https://ddojo.dev.rosatom.local/finding/3291432
+3291432
 Exact CVE/component match in knowledge base (5 entries) rag meta match
 3291427 3291428 3291429 3291430 3291431
 определил что это тоже самое https://ddojo.dev.rosatom.local/finding/3291427

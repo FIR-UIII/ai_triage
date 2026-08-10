@@ -152,6 +152,7 @@ class VectorStore:
         cve: Optional[str],
         component_name: Optional[str],
         file_path: Optional[str] = None,
+        rule: Optional[str] = None,
         n_results: int = 5,
     ) -> List[Dict]:
         """
@@ -159,8 +160,10 @@ class VectorStore:
         заданным метаданным. Если оба параметра указаны, возвращаются записи, которые соответствуют обоим условиям.
         Если ни один из параметров не указан, возвращается пустой список.
         Если CVE не задан, поиск производится по file_path.
+        Необязательный rule (title сработки) дополнительно сужает поиск — нужен для сканеров,
+        у которых один file_path даёт много разных срабатываний (см. TriageEngine._meta_match_rule).
         """
-        if not cve and not component_name and not file_path:
+        if not cve and not component_name and not file_path and not rule:
             return []
 
         conditions = []
@@ -170,6 +173,8 @@ class VectorStore:
             conditions.append({"component_name": {"$eq": component_name}})
         if file_path:
             conditions.append({"file_path": {"$eq": file_path}})
+        if rule:
+            conditions.append({"rule": {"$eq": rule}})
 
         where = {"$and": conditions} if len(conditions) > 1 else conditions[0]
 

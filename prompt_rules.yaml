@@ -5,6 +5,14 @@
 #   т.к. имена тестов в DefectDojo варьируются ("Semgrep JSON Report", "Gitleaks Scan" и т.п.).
 #   Применяется первый совпавший блок.
 #
+# meta_match: набор полей для точного поиска по базе знаний (Шаг 2 триажа) по типу сканера.
+#   test_name сравнивается так же, как в scanners; применяется первый совпавший блок.
+#   require — полный список полей, которые должны ТОЧНО совпасть с записью KB (AND).
+#   Задается ВМЕСТО дефолта (cve + component_name, при отсутствии cve — file_path),
+#   а не в дополнение к нему. Допустимые поля: cve, component_name, file_path, title.
+#   Если у сработки пусто хотя бы одно из требуемых полей — Шаг 2 пропускается
+#   и сработка уходит на семантический поиск / LLM.
+#
 # rules: точечные правила. Все условия внутри match объединяются по AND.
 #   Правило содержит РОВНО ОДНО из:
 #     prompt_addition — текст добавляется к системному промпту LLM (применяются ВСЕ совпавшие);
@@ -50,6 +58,13 @@ scanners:
       This finding comes from Trivy (SCA, dependency CVEs). Base the verdict on component_name,
       component_version and the CVE list. Do not invent affected-version ranges: if the provided
       context does not establish that the installed version is affected, answer needs-review.
+
+meta_match:
+  # KICS: file_path не идентифицирует сработку — один Dockerfile/k8s-манифест дает
+  # десятки разных правил, а component_name у IaC-сработок пустой. Без title любая
+  # новая сработка в уже известном файле помечалась дубликатом чужого FP.
+  - test_name: "KICS"
+    require: [file_path, title]
 
 rules:
   # ------------------------------------------------------------------

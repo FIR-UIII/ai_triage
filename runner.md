@@ -34,13 +34,13 @@ variables:
 enrich:
   image: $IMAGE
   script:
-    - python main.py enrich --test-id $TEST_ID
+    - python main.py enrich --product-name $PRODUCT_NAME
   when: manual
 
 triage:
   image: $IMAGE
   script:
-    - python main.py triage --test-id $TEST_ID --output /app/output/triage_$TEST_ID.jsonl
+    - python main.py triage --product-name $PRODUCT_NAME --output /app/output/triage_$PRODUCT_NAME.jsonl
   artifacts:
     paths:
       - output/

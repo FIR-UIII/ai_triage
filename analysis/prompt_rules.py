@@ -2,6 +2,8 @@
 Модуль для загрузки и применения конфигурируемых правил промптов из prompt_rules.yaml.
 Заменяет собой хардкод-правила из analysis/rules.py и добавляет точечную настройку LLM-триажа:
  - scanners: базовые блоки системного промпта по типу сканера (подстрока test_name);
+ - meta_match: набор полей точного поиска по базе знаний для конкретного сканера
+   (подстрока test_name), если дефолтный CVE/component/file_path его не идентифицирует;
  - rules с verdict: детерминированные правила — принудительный вердикт без вызова LLM
    (первое совпавшее по порядку YAML побеждает);
  - rules с prompt_addition: точечные добавки к системному промпту для конкретных
@@ -22,18 +24,36 @@ from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_valid
 logger = logging.getLogger(__name__)
 
 
-class ScannerPromptBlock(BaseModel):
+class ScannerScopedBlock(BaseModel):
     """
-    Базовый блок промпта для типа сканера. test_name сравнивается как подстрока
+    Блок конфигурации, привязанный к типу сканера. test_name сравнивается как подстрока
     (без учета регистра) с полем test_name сработки из DefectDojo,
     т.к. имена тестов варьируются ("Semgrep JSON Report", "Gitleaks Scan" и т.п.).
     """
     test_name: str
-    prompt: str
 
     def matches(self, finding: Dict) -> bool:
         finding_test_name = (finding.get("test_name") or "").lower()
         return self.test_name.lower() in finding_test_name
+
+
+class ScannerPromptBlock(ScannerScopedBlock):
+    """Базовый блок системного промпта для типа сканера."""
+    prompt: str
+
+
+class MetaMatchBlock(ScannerScopedBlock):
+    """
+    Переопределение набора полей для точного meta-поиска по базе знаний (Шаг 2 триажа)
+    для конкретного типа сканера.
+
+    require — полный список полей сработки, которые должны ТОЧНО совпасть с записью KB
+    (объединяются по AND). Задается вместо дефолтного набора, а не в дополнение к нему.
+    Нужен там, где дефолт (CVE + component_name, при отсутствии CVE — file_path)
+    не идентифицирует сработку: у KICS один Dockerfile/манифест дает десятки разных
+    правил, и матч только по file_path помечает их все дубликатами известного FP.
+    """
+    require: List[Literal["cve", "component_name", "file_path", "title"]] = Field(min_length=1)
 
 
 class MatchCriteria(BaseModel):
@@ -153,6 +173,7 @@ class PromptRulesConfig(BaseModel):
     """Корневая модель конфигурации prompt_rules.yaml."""
     version: int = 1
     scanners: List[ScannerPromptBlock] = Field(default_factory=list)
+    meta_match: List[MetaMatchBlock] = Field(default_factory=list)
     rules: List[PromptRule] = Field(default_factory=list)
 
     def scanner_prompt(self, finding: Dict) -> Optional[str]:
@@ -160,6 +181,16 @@ class PromptRulesConfig(BaseModel):
         for block in self.scanners:
             if block.matches(finding):
                 return block.prompt
+        return None
+
+    def meta_match_fields(self, finding: Dict) -> Optional[List[str]]:
+        """
+        Возвращает require-список первого совпавшего meta_match-блока или None,
+        если для сканера сработки переопределения нет (используется дефолтный набор полей).
+        """
+        for block in self.meta_match:
+            if block.matches(finding):
+                return block.require
         return None
 
     def forced_verdict(self, finding: Dict) -> Optional[Tuple[str, ForcedVerdict]]:
@@ -213,9 +244,11 @@ def load_prompt_rules(path: str) -> Optional[PromptRulesConfig]:
         raise ValueError(f"Invalid prompt rules config {path}:\n{e}") from e
 
     logger.info(
-        "Loaded prompt rules from %s: %d scanner blocks, %d verdict rules, %d prompt additions",
+        "Loaded prompt rules from %s: %d scanner blocks, %d meta_match blocks, "
+        "%d verdict rules, %d prompt additions",
         path,
         len(config.scanners),
+        len(config.meta_match),
         sum(1 for r in config.rules if r.verdict is not None),
         sum(1 for r in config.rules if r.prompt_addition is not None),
     )

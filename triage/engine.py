@@ -59,9 +59,7 @@ class TriageEngine:
 
         # Шаг 2 – Точный поиск metadata match
         cve = self._primary_cve(finding)
-        component = finding.get("component_name")
-        file_path = finding.get("file_path") if not cve else None
-        result = self._stage_meta_match(finding, cve, component, file_path)
+        result = self._stage_meta_match(finding, cve)
         if result:
             return result
 
@@ -146,21 +144,22 @@ class TriageEngine:
         self,
         finding: Dict,
         cve: Optional[str],
-        component: Optional[str],
-        file_path: Optional[str] = None,
     ) -> Optional[TriageResult]:
         """
         Шаг 2. Точный поиск по метаданным (CVE + компонент) в базе знаний.
          - Если CVE отсутствует, поиск выполняется по file_path.
+         - Набор полей можно переопределить для конкретного сканера блоком meta_match
+           в prompt_rules.yaml (см. _meta_match_query).
          - Если найдено точное совпадение, срабатывает триаж с высоким уровнем доверия.
          - Если совпадений нет, возвращает None для перехода к следующему этапу.
          - Этот этап позволяет быстро отсеивать известные ложные срабатывания на основе их идентификаторов и компонентов.
          - Важно, что для этого этапа требуется, чтобы база знаний была достаточно наполнена и актуальна, иначе он будет часто пропускать возможности для быстрого FP триажа.
          - Поэтому важно регулярно обогащать базу знаний новыми ложными срабатываниями и их метаданными из DefectDojo.
         """
-        if not cve and not component and not file_path:
+        query = self._meta_match_query(finding, cve)
+        if not query:
             return None
-        matches = self.store.search_by_meta(cve=cve, component_name=component, file_path=file_path)
+        matches = self.store.search_by_meta(**query)
         if not matches:
             return None
         logger.info(
@@ -176,6 +175,55 @@ class TriageEngine:
             similar_finding_ids=similar_ids,
             dd_comment=self._build_similar_comment(matches),
         )
+
+    def _meta_match_query(self, finding: Dict, cve: Optional[str]) -> Optional[Dict]:
+        """
+        Собирает набор полей для точного meta-поиска (Шаг 2).
+
+        По умолчанию: CVE + component_name, а при отсутствии CVE — component_name + file_path.
+        Если для сканера сработки задан блок meta_match в prompt_rules.yaml, используется
+        его список require вместо дефолта: например, у KICS один file_path дает десятки
+        разных правил, поэтому к пути обязательно добавляется title (в KB хранится как rule),
+        иначе новая сработка в уже известном файле помечается дубликатом чужого FP.
+
+        Возвращает None (Шаг 2 пропускается, уходим на семантику/LLM), если ни одно поле
+        не заполнено или если пусто хотя бы одно из явно затребованных в meta_match полей —
+        матч по остатку от require дал бы то же самое ложное совпадение.
+        """
+        values = {
+            "cve": cve,
+            "component_name": finding.get("component_name"),
+            "file_path": finding.get("file_path"),
+            # title сработки хранится в метаданных базы знаний в поле rule
+            "title": finding.get("title"),
+        }
+
+        required = self.prompt_rules.meta_match_fields(finding) if self.prompt_rules else None
+        if required:
+            missing = [name for name in required if not values[name]]
+            if missing:
+                logger.debug(
+                    "[%s] Stage 2 skipped: meta_match requires %s, finding has no %s",
+                    finding.get("id"), required, missing,
+                )
+                return None
+            selected = {name: values[name] for name in required}
+        else:
+            selected = {
+                "cve": values["cve"],
+                "component_name": values["component_name"],
+                # file_path — запасной ключ, когда идентифицировать по CVE нечем
+                "file_path": None if cve else values["file_path"],
+            }
+            if not any(selected.values()):
+                return None
+
+        return {
+            "cve": selected.get("cve"),
+            "component_name": selected.get("component_name"),
+            "file_path": selected.get("file_path"),
+            "rule": selected.get("title"),
+        }
 
     def _stage_similarity(
         self, finding: Dict, cve: Optional[str]

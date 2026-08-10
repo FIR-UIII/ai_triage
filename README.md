@@ -21,8 +21,6 @@
 8. [CLI-команды](#cli-команды)
    - [enrich](#enrich---обогащение-векторной-базы-знаний-rag--chromadb)
    - [triage](#triage--триаж-сработок)
-   - [dataset](#dataset--подготовка-датасета-для-дообучения)
-   - [bench](#bench---проверка-эффективности-работы)
    - [fetch](#fetch--скачать-findings-в-файл)
 9. [Пайплайн триажа (6 стадий)](#пайплайн-триажа-6-стадий)
 10. [Модуль обогащения знаний](#модуль-обогащения-знаний)
@@ -50,7 +48,7 @@ DefectDojo API
 └──────────────────────────────────────────┘
       │
       ▼
-  JSONL output  +  (опционально) комментарий в DefectDojo
+  JSONL output (вердикт + готовый текст комментария для DefectDojo)
 ```
 
 ---
@@ -123,26 +121,20 @@ docker build --build-arg EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2 -
 docker run --rm \
   --env-file .env \
   -v $(pwd)/rag/chroma_db_metadata:/app/rag/chroma_db_metadata \
-  ai-triage enrich --test-id 1234
+  ai-triage enrich --product-name vault
 
 # triage — триаж сработок
 docker run --rm \
   --env-file .env \
   -v $(pwd)/rag/chroma_db_metadata:/app/rag/chroma_db_metadata \
   -v $(pwd)/output:/app/output \
-  ai-triage triage --test-id 15540
-
-# bench — бенчмарк
-docker run --rm \
-  --env-file .env \
-  -v $(pwd)/output:/app/output \
-  ai-triage bench --input /app/output/triage_15540.jsonl --test-id 15540
+  ai-triage triage --product-name vault
 ```
 
 **Windows PowerShell:**
 
 ```powershell
-docker run --rm --env-file .env -v ${PWD}/rag/chroma_db_metadata:/app/rag/chroma_db_metadata -v ${PWD}/output:/app/output -v ${PWD}/log:/app/log ai-triage triage --test-id 8371
+docker run --rm --env-file .env -v ${PWD}/rag/chroma_db_metadata:/app/rag/chroma_db_metadata -v ${PWD}/output:/app/output -v ${PWD}/log:/app/log ai-triage triage --product-name vault
 ```
 
 ### Тома (Volumes)
@@ -161,12 +153,12 @@ docker run --rm --env-file .env -v ${PWD}/rag/chroma_db_metadata:/app/rag/chroma
 
 ```bash
 # Однократная команда
-docker compose run --rm ai-triage triage --test-id 15540
+docker compose run --rm ai-triage triage --product-name vault
 
 # С Ollama как LLM-бекендом — раскомментировать блок ollama в docker-compose.yml,
 # затем задать в .env: LLM_API_BASE_URL=http://ollama:11434/v1
 docker compose up ollama -d
-docker compose run --rm ai-triage triage --test-id 15540
+docker compose run --rm ai-triage triage --product-name vault
 ```
 
 ---
@@ -288,7 +280,6 @@ LLM_API_KEY=none
 Приложение работает в 3 режимах
 - обогащение RAG **enrich**
 - проведение триажа **triage**
-- проверка эффективности триажа (benchmark) **bench**
 
 ### enrich - обогащение векторной базы знаний (RAG / ChromaDB)
 Если БД будет пустой или недостаточно насыщена контекстом что считать false-positive то результат триажа будет 
@@ -296,16 +287,11 @@ LLM_API_KEY=none
 
 ```
 Options:
-  -t, --test-id       INT  ID теста DefectDojo       )
-  -p, --product-name  STR  ID продукта DefectDojo    ) обязателен один из двух
+  -p, --product-name  STR  имя продукта DefectDojo   [обязателен]
       --dry-run          предпросмотр без записи в RAG
 ```
 
 ```bash
-### Обогащение по test-id (классический способ)
-python main.py enrich --test-id 1234 --dry-run # предпросмотр без записи в RAG
-python main.py enrich --test-id 1234           # с записью в RAG
-
 ### Обогащение по product-name (все FP findings продукта за все тесты)
 python main.py enrich --product-name vault --dry-run
 python main.py enrich --product-name vault
@@ -349,7 +335,6 @@ store.add_entry(KnowledgeEntry(
     cve="CVE-2019-1543",
     component_name="openssl",
     component_version="1:1.1.1zd-1.el7",
-    test_id=298,
 ))
 ```
 
@@ -358,25 +343,21 @@ store.add_entry(KnowledgeEntry(
 
 ```
 Options:
-  -t, --test-id      INT   ID теста DefectDojo        )
-  -p, --product-name STR   ID продукта DefectDojo     ) обязателен один из двух
+  -p, --product-name STR   имя продукта DefectDojo    [обязателен]
   -c, --cache        PATH  файл кеша (создаётся автоматически)
-  -o, --output       PATH  файл с результатами (по умолчанию ./output/triage_<id>.jsonl)
+  -o, --output       PATH  файл с результатами (по умолчанию ./output/triage_product_<name>.jsonl)
+  -r, --repo         PATH  локальный чекаут репозитория для контекста исходного кода
   -fp,--false-positive    фильтровать результат — в output попадут только FP
-      --post-comments     записать результат как комментарий в DD
 ```
 
 ```bash
-# Триаж по test-id (классический способ)
-python main.py triage --test-id 15540
-python main.py triage --test-id 15540 --post-comments
-python main.py triage --test-id 15540 --cache ./cache/findings_15540.json
-python main.py triage --test-id 15540 --output ./results/sca_15540.jsonl
-python main.py triage --test-id 15540 --false-positive
-
 # Триаж по product-name (все активные сработки продукта за все тесты)
 python main.py triage --product-name vault
-python main.py triage --product-name vault --post-comments
+
+# Имя продукта с пробелами обязательно в кавычках — иначе оболочка разобьёт его
+# на несколько аргументов и команда завершится с ошибкой разбора параметров.
+# Файлы кеша и результата получат имя со сплошными подчёркиваниями: findings_product_Foo_bar_baz.json
+python main.py triage --product-name "Foo bar baz"
 python main.py triage --product-name vault --cache ./cache/findings_product_vault.json
 python main.py triage --product-name vault --output ./results/sca_product_vault.jsonl
 python main.py triage --product-name vault --false-positive
@@ -415,74 +396,18 @@ srv  update_slots: all slots are idle
 srv  log_server_r: done request: POST /v1/chat/completions 127.0.0.1 200
 ```
 
-### dataset — подготовка датасета для дообучения
-
-Конвертирует результаты триажа (JSONL из команды `triage`) в формат **ChatML** для файнтюнинга LLM.
-Каждая сработка превращается в пример `{messages: [system, user, assistant]}`, где:
-- `system` — статический промпт аналитика без RAG-контекста (модель учится рассуждать по данным сработки)
-- `user` — нормализованные поля сработки в JSON
-- `assistant` — результат триажа: `{"verdict": ..., "confidence": ..., "explanation": ...}`
-
-```
-Options:
-  -i, --input          PATH  JSONL с результатами триажа [обязательный]
-  -o, --output         PATH  выходной ChatML JSONL [по умолчанию: <input>_chatml.jsonl]
-      --only-fp              включить только false-positive примеры
-      --only-reviewed        включить только needs-review примеры
-```
-
-```bash
-# Базовый экспорт — все сработки
-python main.py dataset --input ./output/triage_15540.jsonl
-
-# Указать путь к выходному файлу
-python main.py dataset --input ./output/triage_15540.jsonl --output ./finetune/train.jsonl
-
-# Только подтверждённые false-positive (качественные обучающие примеры)
-python main.py dataset --input ./output/triage_15540.jsonl --only-fp
-
-# Только needs-review (для обучения на граничных случаях)
-python main.py dataset --input ./output/triage_15540.jsonl --only-reviewed
-```
-
-Пример одной записи в выходном файле:
-```json
-{
-  "messages": [
-    {"role": "system", "content": "You are an expert application security engineer..."},
-    {"role": "user",   "content": "Analyse this security finding:\n{\"id\": 2858280, \"title\": \"...\", ...}"},
-    {"role": "assistant", "content": "{\"verdict\": \"false-positive\", \"confidence\": 0.9, \"explanation\": \"...\"}"}
-  ]
-}
-```
-
----
-
-### bench - проверка эффективности работы 
-Цель сравнить статус как был закрыт finding по итогу окончания триажа когда были проведен ручной анализ кода человеком. 
----
-```bash
-python main.py bench --input output/triage_15540.jsonl --test-id 15540
-
-# Вывод:
-Benchmark results 15540
-  Всего сравнений: 100
-  Верно:   90 (90%)
-  Неверно: 10 (10%) 
-```
----
-
 ### fetch — скачать findings в файл. 
-Ранее использовался для работы, сейчас не применятеся как ключевая команда. Цель скачать findings по test id
+Вспомогательная команда: скачивает активные findings продукта в JSON. По умолчанию пишет
+в тот же файл кеша, который потом читает `triage`.
 ```
 Options:
-  -t, --test-id  INT   ID теста                           [required]
-  -o, --output   PATH  Куда сохранить [./cache/findings_<id>.json]
+  -p, --product-name  STR   имя продукта DefectDojo        [required]
+  -o, --output        PATH  Куда сохранить [./cache/findings_product_<name>.json]
 ```
 
 ```bash
-python main.py fetch --test-id 15540
-python main.py fetch --test-id 15540 --output ./data/raw.json
+python main.py fetch --product-name vault
+python main.py fetch --product-name vault --output ./data/raw.json
 ```
 
 ---
