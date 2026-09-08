@@ -1,0 +1,21 @@
+= AtomID Bundle: параметры конфигурации
+:toc:
+
+== Переменные окружения
+
+|===
+|Переменная |Обязательна |Описание
+
+|BUNDLE_SECRET_SECURITY_PRIVATE_KEY |да |PrivateKey — ключ подписи JWT. Пример значения:
+
+-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+EXAMPLE-DOCUMENTATION-KEY-DO-NOT-USE-IN-PRODUCTION
+-----END RSA PRIVATE KEY-----
+
+|BUNDLE_SERVICE_API_KEY |да |Ключ доступа к сервису выдачи документов
+|BUNDLE_BASE_URL |нет |Базовый URL, по умолчанию http://localhost:8080
+|===
+
+NOTE: Значения выше приведены в документации как образец формата.
+Реальные ключи хранятся в HashiCorp Vault и монтируются в контейнер.

@@ -1,0 +1,22 @@
+# Локальное окружение разработчика. В CI/CD не используется,
+# в кластер не разворачивается — пароли здесь фиктивные.
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev_local_password
+      POSTGRES_DB: atomid_dev
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  bundle:
+    build: ../..
+    environment:
+      SERVICE_API_KEY: dev-placeholder
+    depends_on:
+      - postgres
+    ports:
+      - "127.0.0.1:8080:8080"

@@ -627,5 +627,18 @@ ai_triage/
 ├── cache/                         # JSON-кеш (gitignore)
 ├── output/                        # JSONL результаты (gitignore)
 ├── llm/                           # GGUF-модели (gitignore)
-└── samples/                       # примеры Ollama / langchain / llama-server
+├── samples/                       # примеры Ollama / langchain / llama-server
+└── test/bench/                    # бенчмарк моделей: размеченный набор + эмулированный репозиторий
+    ├── bench_findings.json        # 36 сработок с эталонными вердиктами
+    ├── bench_repo/                # исходники, на которые ссылаются сработки
+    └── run_bench.py               # прогон, метрики, сравнение моделей
 ```
+
+### Бенчмарк моделей
+
+```bash
+python test/bench/run_bench.py --label qwen2.5-coder-7b            # прогон
+python test/bench/run_bench.py --compare test/bench/reports/*.json  # сравнение
+```
+
+Подробности — в [test/bench/README.md](test/bench/README.md).

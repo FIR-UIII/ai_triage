@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: atomid-bundle
+  namespace: atomid-prod
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: atomid-bundle
+  template:
+    metadata:
+      labels:
+        app: atomid-bundle
+    spec:
+      containers:
+        - name: bundle
+          image: registry.example.local/atomid-bundle:1.14.0
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SERVICE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: atomid-bundle-secrets
+                  key: apiKey
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
